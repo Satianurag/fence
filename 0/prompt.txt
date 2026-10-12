@@ -1,0 +1,7 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Two detections now exist in the clean "fence" Neatlogs project, created through a write-scope CLI login (profile fence-write; your read profile is unchanged):
+- "Fence: fix failed verification", id ed210539-07d4-44a7-9ee4-b35ef6894484, group Negative: TOOL spans named fence.verify with status = ERROR.
+- "Fence: asked a human", id 749b960e-fa61-402e-a1b5-cf78c067da84, group Neutral: TOOL spans named fence.ask with status = OK.
+
+They are unverified until matching spans arrive. When the #2160 ask run and any fix run with a failed verify have landed in the clean project, check whether each detection fired (`neatlogs detections get <id>`, trace detail, or whatever the read CLI exposes) and report the result either way. If one does not fire, say what the span looked like so the rule can be corrected; do not change span names to fit the rule without telling me. Record both ids in docs/neatlogs-detections.json and the README, replacing the "create these in the dashboard" instruction with what exists and whether it has been seen firing.
+</cross-session-message>
