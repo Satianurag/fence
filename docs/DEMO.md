@@ -110,7 +110,7 @@ Say about cost, if asked: the dollar figures in the README are Claude Code's own
 ## 6. The dashboard (2:20 to 2:50)
 
 - `http://localhost:8010/?issue=2256` : the replay walks the evidence commits and ends on MISTAKE, FIXED.
-- `http://localhost:8010/?issue=2033` : the same replay ends on DECISION, ASKED A HUMAN, with the quote.
+- `http://localhost:8010/?issue=2033` : the same replay ends on DECISION, ASKED A HUMAN in the strip above the 3D view. The quote itself is in `runs/questions/2033.md`.
 - Point at the FENCE VS BASELINE table and the EVAL panel.
 
 Say: "Same picture for every issue: the commits behind the code, which of them have a checkpoint, and what Fence did.
