@@ -1,0 +1,11 @@
+{
+ "issue": 2160,
+ "title": "Feature request: Goose and Qwen Code agent integrations",
+ "ruling": "we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself.",
+ "source": "gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646",
+ "fact": {
+  "id": "fact:ac9834cf8740308a0f8fdee6",
+  "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
+ },
+ "path": "constraints.fence.rulings"
+}

@@ -5,9 +5,17 @@
  "verdict": {
   "verdict": "mistake",
   "confidence": 0.8,
-  "rationale": "The evidence covers moving and tightening the trailer heuristic, but nothing shows anyone chose for the writer to treat indented trailer-shaped lines as a trailer block. The writer's looser TrimSpace grammar appears to be an unconsidered divergence from the reader and git, not a deliberate choice.",
-  "quotes": []
+  "rationale": "The evidence covers moving the trailer code into the trailers package, tightening the trailer regex, and adding a non-interactive fallback. None of it discusses indented lines or choosing a looser, trimmed grammar for the writer. The only nearby discussion, about `error: connection refused` matching the regex, is a different behaviour, so the writer/reader divergence was never decided.",
+  "quotes": [],
+  "ruling_id": null
  },
+ "outcome": "fix",
+ "rulings": [
+  {
+   "id": "fact:ac9834cf8740308a0f8fdee6",
+   "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
+  }
+ ],
  "located": {
   "rev": "d5f6deffa4",
   "located_by": "named",
@@ -204,14 +212,14 @@
   }
  ],
  "cost": {
-  "usd": 0.004754,
+  "usd": 0.049387,
   "llm_calls": 1,
   "input_tokens": 2,
-  "output_tokens": 138,
-  "cache_read_tokens": 11216,
-  "cache_write_tokens": 562
+  "output_tokens": 284,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 11619
  },
- "trace_id": "6cc1967d5b1ce37bbcd232495ae1e549",
+ "trace_id": "7bfb187726c3f35bdd85719bb737b154",
  "error": null,
- "trace_spans": 6
+ "trace_spans": 7
 }
