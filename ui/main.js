@@ -335,8 +335,8 @@ function scene3d(canvas, hudCanvas) {
     camera.idle = performance.now() / 1000;
   });
   canvas.addEventListener("pointerup", () => (drag = null));
-  canvas.addEventListener("wheel", (e) => { e.preventDefault(); camera.r = clamp(camera.r * Math.exp(e.deltaY * 0.001), 16, 60); camera.idle = performance.now() / 1000; }, { passive: false });
-  canvas.addEventListener("dblclick", () => Object.assign(camera, home, { idle: -10 }));
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); camera.r = clamp(camera.r * Math.exp(e.deltaY * 0.001), 16, 70); camera.zoomed = true; camera.idle = performance.now() / 1000; }, { passive: false });
+  canvas.addEventListener("dblclick", () => Object.assign(camera, home, { idle: -10, zoomed: false }));
 
   const glitch = glitcher(canvas, rng(7));
   const fps = { frames: 0, since: 0, value: 60 };
@@ -349,12 +349,14 @@ function scene3d(canvas, hudCanvas) {
       if (camera.idle > 0) { baseAz = camera.az - 0.3 * Math.sin(t * 0.12); camera.idle = -10; }
       camera.az = baseAz + 0.3 * Math.sin(t * 0.12);
     }
+    if (!camera.zoomed) camera.r = clamp(((xmax - xmin) / 2 + 8) / (Math.tan(19 * Math.PI / 180) * (w / h)), 30, 70);
     const target = [0, 1.7, 0];
     const eye = [target[0] + camera.r * Math.cos(camera.el) * Math.sin(camera.az), target[1] + camera.r * Math.sin(camera.el), target[2] + camera.r * Math.cos(camera.el) * Math.cos(camera.az)];
     const proj = perspective(38 * Math.PI / 180, w / h, 0.5, 260);
-    proj[8] = -0.1; proj[9] = 0.06;            // lens shift: scene sits right of and slightly below the detail card
     const vp = mul(proj, lookAt(eye, target));
-    const focus = Math.hypot(...sub(eye, rp.cursor));
+    const ca = bars[rp.i], cb = bars[Math.min(N - 1, rp.i + 1)];
+    const cursor = [ca.x + (cb.x - ca.x) * rp.f, ca.h + (cb.h - ca.h) * rp.f, ca.z + (cb.z - ca.z) * rp.f]; // on the pillar tops, where the path runs
+    const focus = Math.hypot(...sub(eye, cursor));
     const uStep = rp.done ? N : rp.i;
 
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -439,7 +441,7 @@ function scene3d(canvas, hudCanvas) {
       c.fillText(name.length > 16 ? name.slice(0, 15) + "…" : name, s[0], s[1]);
     });
 
-    const cs = P(rp.cursor);
+    const cs = P(cursor);
     if (cs) {
       const pulse = 4 + 3 * ((t * 1.5) % 1);
       c.strokeStyle = `rgba(${AMBER},${0.9 - (pulse - 4) / 4})`; c.lineWidth = 1;
@@ -447,8 +449,6 @@ function scene3d(canvas, hudCanvas) {
       c.fillStyle = `rgb(${AMBER})`;
       c.beginPath(); c.moveTo(cs[0], cs[1] - 5); c.lineTo(cs[0] + 4, cs[1] + 3); c.lineTo(cs[0] - 4, cs[1] + 3); c.fill();
     }
-    c.textAlign = "right"; c.font = `8px ${FONT}`; c.fillStyle = "rgba(255,255,255,0.3)";
-    c.fillText(`PTS ${nPts.toLocaleString("en-US")} · ${fps.value.toFixed(0)} FPS`, w - 12, h - 12);
     c.textAlign = "left";
     glitch(c, w, h, dpr, t);
   }
@@ -523,7 +523,7 @@ function globe(canvas, hudCanvas, readout) {
   function frame(t) {
     const { w, h, dpr } = fit(canvas);
     fit(hudCanvas);
-    const R = Math.min(w, h) * 0.4;
+    const R = Math.min(w, h) * 0.34;
     const fov = 2 * Math.atan(Math.tan(Math.asin(1 / eye[2])) * (h / 2) / R);
     const vp = mul(perspective(fov, w / h, 0.1, 10), lookAt(eye, [0, 0, 0]));
     const spin = -HUB[1] * Math.PI / 180 + t * 0.12 - 0.6;
@@ -590,25 +590,11 @@ function ringPanel(canvas) {
 }
 
 // C · issues with the most recorded evidence (dotted bar = lines located, thin bar = lines traced)
-function issuesPanel(canvas) {
-  const begin = panel2d(canvas);
-  const rows = D.issues.slice(0, 5), maxL = Math.max(...rows.map((r) => r.lines));
-  return (t) => {
-    const { ctx: c, w, h } = begin();
-    const rowH = (h - 4) / rows.length, tight = rowH < 19;
-    const x0 = w * (tight ? 0.16 : 0.38), x1 = tight ? w * 0.52 : w - 4;
-    rows.forEach((r, i) => {
-      const y = 4 + i * rowH, mid = y + rowH / 2, hot = r.number === D.issue.number, colr = hot ? AMBER : "255,255,255";
-      const grow = Math.min(1, ((t * 0.4 + i * 0.1) % 6) / 1.2);
-      label(c, `#${r.number} ${r.title}`.slice(0, tight ? 9 : 38).toUpperCase(), 0, tight ? mid : y + 5, "left", `rgba(${colr},${hot ? 1 : 0.75})`);
-      if (!tight) label(c, `${r.state.toUpperCase()}${r.reason ? " · " + r.reason.replace("_", " ").toUpperCase() : ""}`, 0, y + 15, "left", "rgba(255,255,255,0.35)");
-      const len = r.lines / maxL * (x1 - x0), lenT = r.linked / maxL * (x1 - x0);
-      c.fillStyle = `rgba(${colr},0.8)`;
-      for (let x = 0; x < len * grow; x += 2) c.fillRect(x0 + x, tight ? mid - 4 : y + 2, 1, tight ? 4 : 5);
-      c.fillStyle = `rgba(${colr},0.4)`; c.fillRect(x0, tight ? mid + 2 : y + 11, lenT * grow, 2);
-      label(c, `${r.lines} LN · ${r.checkpoints} CK`, w - 4, tight ? mid : y + 16, "right", "rgba(255,255,255,0.55)");
-    });
-  };
+function issuesList() {
+  const rows = D.issues.slice(0, 5), maxL = Math.max(...rows.map((r) => r.lines), 1);
+  $("issues").innerHTML = rows.map((r) =>
+    `<div class="iss${r.number === D.issue.number ? " hot" : ""}"><div class="iss-top"><span>#${r.number} ${escapeHtml(r.title.toUpperCase())}</span><em>${r.lines} LN · ${r.checkpoints} CK</em></div>` +
+    `<div class="iss-bar"><i class="loc" style="width:${r.lines / maxL * 100}%"></i><i class="lnk" style="width:${r.linked / maxL * 100}%"></i></div></div>`).join("");
 }
 
 // E · evidence profile: cumulative traced lines over time as a stippled mountain
@@ -620,6 +606,7 @@ function profilePanel(canvas) {
   for (const p of PATH) { acc += p.linked; cum.push(acc); }
   $("profile-note").textContent = `${PATH[0].date} → ${PATH[N - 1].date}`;
   const valueAt = (time) => {
+    if (N === 1) return cum[0];
     if (time <= Date.parse(PATH[0].date)) return 0;
     let v = 0;
     for (let k = 0; k < N; k++) {
@@ -630,7 +617,7 @@ function profilePanel(canvas) {
   };
   return (t, rp) => {
     const { ctx: c, w, h } = begin();
-    const x0 = 30, x1 = w - 6, top = 22, base = h - 16, maxV = Math.max(acc, 1);
+    const x0 = 30, x1 = w - 6, top = 10, base = h - 16, maxV = Math.max(acc, 1);
     const X = (time) => x0 + (time - t0) / (t1 - t0 || 1) * (x1 - x0), Y = (v) => base - v / maxV * (base - top);
     for (let k = 0; k <= 2; k++) { const v = maxV * k / 2; c.fillStyle = "rgba(255,255,255,0.07)"; c.fillRect(x0, Y(v), x1 - x0, 1); label(c, String(Math.round(v)), x0 - 4, Y(v), "right", "rgba(255,255,255,0.35)"); }
     for (let x = x0; x <= x1; x += 1.5) {
@@ -669,7 +656,11 @@ function cumulativePanel(canvas) {
     line("commits", "rgba(255,255,255,0.9)", []);
     line("checkpoints", `rgba(${AMBER},0.7)`, [3, 3]);
     const mi = C.findIndex((m) => m.m === PATH[rp.i].date.slice(0, 7));
-    if (mi >= 0) { c.fillStyle = "#fff"; c.fillRect(X(mi) - 2, Y(C[mi].commits) - 2, 4, 4); label(c, `${thousands(C[mi].commits)} COMMITS`, X(mi) + (mi > C.length / 2 ? -6 : 6), Y(C[mi].commits) - 8, mi > C.length / 2 ? "right" : "left", "rgba(255,255,255,0.9)"); }
+    if (mi >= 0) {
+      c.fillStyle = "#fff"; c.fillRect(X(mi) - 2, Y(C[mi].commits) - 2, 4, 4);
+      const note = `${C[mi].m} · ${thousands(C[mi].commits)} / ${thousands(C[mi].checkpoints)}`.toUpperCase();
+      if ($("cum-note").textContent !== note) $("cum-note").textContent = note;
+    }
   };
 }
 
@@ -681,13 +672,12 @@ const ACTION = { fixed: "FIXED", not_fixed: "ASKED", fix_failed: "FAILED", needs
 // D · eval: Fence's verdict for closed issues against what happened to them, with the caveat next to the numbers
 function evalTable() {
   const E = D.eval, cols = ["mistake", "decision", "no_record"], rows = ["completed", "not_planned", "duplicate"].filter((r) => E.table[r]);
-  $("eval-note").textContent = `${E.issues} CLOSED ISSUES · ${money(E.cost)}`;
+  $("eval-note").textContent = `${E.issues} CLOSED · ${money(E.cost)}`;
   $("eval").innerHTML =
     `<table><thead><tr><th>CLOSED AS</th>${cols.map((c) => `<th class="num">${c.replace("_", " ").toUpperCase()}</th>`).join("")}</tr></thead><tbody>` +
     rows.map((r) => `<tr><td>${r.replace("_", " ").toUpperCase()}</td>${cols.map((c) => `<td class="num${(r === "completed" && c === "mistake") || (r === "not_planned" && c === "decision") ? " hit" : ""}">${E.table[r][c] || 0}</td>`).join("")}</tr>`).join("") +
     `</tbody></table>` +
-    `<p class="caveat"><b>AGREES ${E.agreement.agree}/${E.agreement.compared}.</b> ALWAYS ANSWERING "MISTAKE" WOULD SCORE ${E.baseline.agree}/${E.baseline.compared}. ` +
-    `THIS DOES NOT SHOW THE VERDICT ADDS INFORMATION. "COMPLETED" ALSO COVERS FEATURE WORK; ONLY ${E.agreement.by_state_reason.not_planned.issues} NOT-PLANNED ISSUES. ONE RUN EACH.</p>` +
+    `<p class="caveat"><b>AGREES ${E.agreement.agree}/${E.agreement.compared}.</b> ALWAYS ANSWERING "MISTAKE" SCORES ${E.baseline.agree}/${E.baseline.compared}. ONE RUN EACH.</p>` +
     `<p class="caveat dim">OPEN SCAN · ${D.scan.issues} ISSUES · ${Object.entries(D.scan.verdicts).map(([k, v]) => `${k.replace("_", " ").toUpperCase()} ${v}`).join(" · ")}</p>`;
 }
 
@@ -695,10 +685,10 @@ function evalTable() {
 function compareTable() {
   const by = {};
   for (const r of D.compare.rows) (by[r.issue] ||= {})[r.mode] = r;
-  const cell = (r) => (r ? `<td class="act ${r.action}">${ACTION[r.action] || "—"}${r.attempts > 1 ? ` ×${r.attempts}` : ""}</td><td class="num">${money(r.cost)}</td><td class="num">${secs(r.duration)}</td>` : `<td>—</td><td></td><td></td>`);
+  const cell = (r) => (r ? `<td class="act ${r.action}">${ACTION[r.action] || "—"}${r.attempts > 1 ? ` ×${r.attempts}` : ""}</td><td class="num">${money(r.cost)}</td><td class="num t">${secs(r.duration)}</td>` : `<td>—</td><td></td><td class="t"></td>`);
   $("cmp-note").textContent = "ONE RUN PER CELL · SAME VERIFICATION";
   $("compare").innerHTML =
-    `<table><thead><tr><th>ISSUE</th><th>VERDICT</th><th>FENCE</th><th class="num">COST</th><th class="num">TIME</th><th class="sep">BASELINE</th><th class="num">COST</th><th class="num">TIME</th></tr></thead><tbody>` +
+    `<table><thead><tr><th>ISSUE</th><th>VERDICT</th><th>FENCE</th><th class="num">COST</th><th class="num t">TIME</th><th class="sep">BASELINE</th><th class="num">COST</th><th class="num t">TIME</th></tr></thead><tbody>` +
     Object.entries(by).map(([n, m]) => `<tr data-n="${n}" class="${Number(n) === D.issue.number ? "on" : ""}"><td>${D.replays[n] ? `<a href="?issue=${n}">#${n}</a>` : `#${n}`}</td><td class="v ${m.fence.verdict}">${(m.fence.verdict || "—").toUpperCase()}</td>${cell(m.fence)}${cell(m.baseline).replace("<td", '<td class="sep"').replace('class="sep" class="act', 'class="sep act')}</tr>`).join("") +
     `</tbody></table><p class="caveat">ASKED = NO CODE CHANGED, QUESTION WRITTEN FOR A MAINTAINER. FIXED = THE WORKER'S TEST FAILS WITHOUT ITS FIX AND PASSES WITH IT, NOTHING REGRESSED; NO HUMAN REVIEWED THE FIX.</p>`;
 }
@@ -861,8 +851,8 @@ function syncDom(t, rp) {
 // ---------- boot ----------
 const scene = scene3d($("scene"), $("scene-hud"));
 const sphere = globe($("globe"), $("globe-hud"), $("globe-readout"));
-const panels = [ringPanel($("ring")), issuesPanel($("formats")), profilePanel($("profile")), cumulativePanel($("cumulative"))];
-evalTable(); compareTable(); decisionsList(); outcomeBox(); issueSelector();
+const panels = [ringPanel($("ring")), profilePanel($("profile")), cumulativePanel($("cumulative"))];
+evalTable(); compareTable(); decisionsList(); outcomeBox(); issueSelector(); issuesList();
 const tickChrome = chrome();
 logLine(`ISSUE #${D.issue.number} OPENED · ${D.issue.created}`);
 

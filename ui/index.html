@@ -49,8 +49,8 @@
     </section>
 
     <section class="panel">
-      <header><span class="tag">C</span>ISSUES · MOST EVIDENCE<small>LOCATED · LINKED</small></header>
-      <div class="body"><canvas id="formats"></canvas></div>
+      <header><span class="tag">C</span>ISSUES · MOST EVIDENCE<small>LOCATED / TRACED</small></header>
+      <div class="body"><div class="issues" id="issues"></div></div>
     </section>
 
     <section class="panel">
@@ -66,25 +66,28 @@
         <small id="view-note"></small></header>
       <div class="stages" id="stages"></div>
       <div class="scene">
-        <canvas id="scene"></canvas>
-        <canvas id="scene-hud"></canvas>
-        <div class="card" id="card">
-          <div class="card-head"><b id="c-id"></b><span id="c-commit"></span><em id="c-date"></em></div>
-          <div class="card-subj" id="c-subj"></div>
-          <div class="card-meta"><span id="c-file"></span><span id="c-lines"></span></div>
-          <div class="card-ck" id="c-ck"></div>
-          <div class="card-prompt"><small>PROMPT ON RECORD</small><p id="c-prompt"></p></div>
+        <div class="rail">
+          <div class="card" id="card">
+            <div class="card-head"><b id="c-id"></b><span id="c-commit"></span><em id="c-date"></em></div>
+            <div class="card-subj" id="c-subj"></div>
+            <div class="card-meta"><span id="c-file"></span><span id="c-lines"></span></div>
+            <div class="card-ck" id="c-ck"></div>
+            <div class="card-prompt"><small>PROMPT ON RECORD</small><p id="c-prompt"></p></div>
+          </div>
+          <div class="outcome" id="outcome"></div>
         </div>
-        <div class="outcome" id="outcome"></div>
-        <div class="hint">DRAG · ORBIT &nbsp;&nbsp; WHEEL · ZOOM &nbsp;&nbsp; DBL-CLICK · RESET</div>
+        <div class="stage3d">
+          <canvas id="scene"></canvas>
+          <canvas id="scene-hud"></canvas>
+          <div class="hint">DRAG · ORBIT &nbsp;&nbsp; WHEEL · ZOOM &nbsp;&nbsp; DBL-CLICK · RESET</div>
+        </div>
       </div>
     </section>
     <div class="row">
       <section class="panel profile-panel">
-        <header><span class="tag">E</span>EVIDENCE PROFILE<small id="profile-note"></small></header>
+        <header><span class="tag">E</span>EVIDENCE PROFILE<span class="hval"><b id="profile-big">0</b> LN TRACED</span><small id="profile-note"></small></header>
         <div class="body">
           <canvas id="profile"></canvas>
-          <div class="big"><small>LINES TRACED</small><span id="profile-big">0</span></div>
         </div>
       </section>
       <section class="panel">
@@ -106,12 +109,12 @@
     </section>
 
     <section class="panel">
-      <header><span class="tag">H</span>CUMULATIVE COMMITS / CHECKPOINTS<small>N · MONTH</small></header>
+      <header><span class="tag">H</span>COMMITS / CHECKPOINTS<small id="cum-note"></small></header>
       <div class="body"><canvas id="cumulative"></canvas></div>
     </section>
 
     <section class="panel">
-      <header><span class="tag">I</span><span id="results-title">DECISION VERDICTS · READ AGAINST REALITY</span><small id="dec-note"></small></header>
+      <header><span class="tag">I</span><span id="results-title">DECISION VERDICTS</span><small id="dec-note"></small></header>
       <div class="body"><div class="results" id="results"></div></div>
     </section>
 

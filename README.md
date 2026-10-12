@@ -201,7 +201,7 @@ Dashboard: `python3 -m http.server --directory ui 8010`, then open `http://local
 - **The verdict is one model call and is not stable.** See the eval limits above and [runs/decisions.md](runs/decisions.md).
 - **The readings in decisions.md are the builder's own**, not an independent review.
 - **Recall is not selective.** With one ruling stored, Brain returns it for every query; whether it applies is left to the verdict model.
-- **The dashboard was checked in a browser once**, at 1600x900, for issues #2256 and #2033: it renders with no console errors. Other sizes and other issues were not checked.
+- **The dashboard was checked from screenshots** at 1280x720, 1440x800, 1600x900 and 1920x1080 for issues #2256, #2033 and #2263. Below 1100 px wide it falls back to a single column, which was not checked.
 - **Traces live in two Neatlogs projects.** The fix, ask and precedent runs linked above are in the project "fence". The 52-issue eval, the 45-issue open scan and the #2274 baseline retry are in the first project, "Anurag's project", next to smoke tests and about a dozen probe traces from finding the ingest size limit.
 - **One of the two detections is not usable yet** (see Neatlogs above), and Neatlogs' cost figures do not match Claude Code's.
 - **There is no CLAUDE.md.** Working notes for agents in this repo have not been written.

@@ -118,7 +118,7 @@ And the honest numbers. On plain bugs the investigation costs a few cents more a
 with maintainers 40 times out of 47, and a rule that always says mistake would score 45. The value is in the
 decision cases."
 
-Record at 1600x900 or wider; that is the size the layout was checked at. Serve it with
+Any window from 1280x720 to 1920x1080 works; the layout was checked at those sizes. Serve it with
 `python3 -m http.server --directory ui 8010`.
 
 ## 7. The plan (2:50 to 3:00)
