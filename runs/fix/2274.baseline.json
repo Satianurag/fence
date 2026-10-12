@@ -1,0 +1,201 @@
+{
+ "issue": 2274,
+ "title": "`entire disable` does not reach linked worktrees: settings.local.json is per worktree, so a new `git worktree add` comes back enabled",
+ "model": "sonnet",
+ "verdict": null,
+ "outcome": null,
+ "rulings": [],
+ "located": null,
+ "evidence": [],
+ "cost": {
+  "usd": 0.206881,
+  "llm_calls": 2,
+  "input_tokens": 28,
+  "output_tokens": 6125,
+  "cache_read_tokens": 212991,
+  "cache_write_tokens": 31069
+ },
+ "trace_id": "ac2f762e4d41cecc9f027c1a65707513",
+ "error": null,
+ "mode": "baseline",
+ "action": "fixed",
+ "attempts": [
+  {
+   "attempt": 1,
+   "worker": {
+    "report": "`entire disable` now applies to every linked worktree of the clone, and the new test passes. I ran only that test, so the rest of the suite hasn't been run against this change.\n\nThe fix follows the issue's proposal in part:\n- **Clone preferences:** `ClonePreferences` gains an `enabled` flag, and `applyClonePreferences` applies it. The merge order is now `settings.json`, then clone preferences, then `settings.local.json`.\n- **Writing the flag:** the local-scope branch of `setEnabledFlag` writes `enabled` to `.git/entire/preferences.json`. It still writes `settings.local.json` as before.\n\nI did not do these parts of the proposal:\n- Re-syncing the mirror on `entire enable --project`.\n- The \"already enabled\" short-circuit change in `runEnableOnConfiguredRepo`.\n- The `Clone · enabled|disabled` line in `entire status --detailed`.\n\nWithout the re-sync, `entire enable --project` leaves the mirror as it was. A mirrored `false` therefore stays in effect.\n\nThe test disables Entire in the main worktree, creates a linked worktree that has only the committed `settings.json`, and checks that `IsEnabled` returns false there. It failed before the change.\n\nTest added: `TestRunDisable_AppliesToLinkedWorktrees`\nFiles changed: `cmd/entire/cli/setup_disable_worktree_test.go` (new), `cmd/entire/cli/settings/settings.go`, `cmd/entire/cli/setup.go`",
+    "error": null,
+    "cost_usd": 0.1385408,
+    "duration_ms": 58375
+   },
+   "verification": {
+    "ok": false,
+    "reason": "regressions: TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields",
+    "repro_tests": [
+     "TestRunDisable_AppliesToLinkedWorktrees"
+    ],
+    "newly_passing": [
+     "TestRunDisable_AppliesToLinkedWorktrees"
+    ],
+    "regressions": [
+     "TestRunDisable",
+     "TestRunDisable_AlreadyDisabled",
+     "TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly",
+     "TestRunDisable_BareCommand_WritesLocalWhenBothExist",
+     "TestRunDisable_CreatesSettingsDirWhenMissing",
+     "TestRunDisable_WithLocalSettings",
+     "TestRunEnable",
+     "TestRunEnable_AlreadyEnabled",
+     "TestRunEnable_DefaultFlag_ClearsLocalDisable",
+     "TestRunEnable_LocalScope_PreservesLocalOnlyFields"
+    ],
+    "files_changed": [
+     "cmd/entire/cli/settings/settings.go",
+     "cmd/entire/cli/setup.go",
+     "cmd/entire/cli/setup_disable_worktree_test.go"
+    ],
+    "runs": [
+     {
+      "purpose": "red: worker's tests without its fix",
+      "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+      "exit_code": 0,
+      "text": "BASELINE RECORDED: <baseline> (go test; 6102 passing, 3 failing, exit 1)",
+      "duration_ms": 183589,
+      "newly_passing": [],
+      "newly_failing": [],
+      "verdict": ""
+     },
+     {
+      "purpose": "green vs red: tests fixed by the change",
+      "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+      "exit_code": 0,
+      "text": "NEWLY PASSING (1): TestRunDisable_AppliesToLinkedWorktrees\nNEWLY FAILING (10): TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields\nPRE-EXISTING FAILURES (also failing before your edit; not caused by your change) (2): TestRunTrailListAll_PrintsLoginHintWhenNotLoggedIn, TestSearchCmd_CodeFlagRequiresQuery\nVERDICT: REGRESSION in 10 tests: TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields",
+      "duration_ms": 194721,
+      "newly_passing": [
+       "TestRunDisable_AppliesToLinkedWorktrees"
+      ],
+      "newly_failing": [
+       "TestRunDisable",
+       "TestRunDisable_AlreadyDisabled",
+       "TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly",
+       "TestRunDisable_BareCommand_WritesLocalWhenBothExist",
+       "TestRunDisable_CreatesSettingsDirWhenMissing",
+       "TestRunDisable_WithLocalSettings",
+       "TestRunEnable",
+       "TestRunEnable_AlreadyEnabled",
+       "TestRunEnable_DefaultFlag_ClearsLocalDisable",
+       "TestRunEnable_LocalScope_PreservesLocalOnlyFields"
+      ],
+      "verdict": "REGRESSION in 10 tests: TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields"
+     },
+     {
+      "purpose": "green vs pre-edit baseline: regressions",
+      "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+      "exit_code": 0,
+      "text": "NEWLY FAILING (10): TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields\nPRE-EXISTING FAILURES (also failing before your edit; not caused by your change) (2): TestRunTrailListAll_PrintsLoginHintWhenNotLoggedIn, TestSearchCmd_CodeFlagRequiresQuery\nVERDICT: REGRESSION in 10 tests: TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields",
+      "duration_ms": 188216,
+      "newly_passing": [],
+      "newly_failing": [
+       "TestRunDisable",
+       "TestRunDisable_AlreadyDisabled",
+       "TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly",
+       "TestRunDisable_BareCommand_WritesLocalWhenBothExist",
+       "TestRunDisable_CreatesSettingsDirWhenMissing",
+       "TestRunDisable_WithLocalSettings",
+       "TestRunEnable",
+       "TestRunEnable_AlreadyEnabled",
+       "TestRunEnable_DefaultFlag_ClearsLocalDisable",
+       "TestRunEnable_LocalScope_PreservesLocalOnlyFields"
+      ],
+      "verdict": "REGRESSION in 10 tests: TestRunDisable, TestRunDisable_AlreadyDisabled, TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly, TestRunDisable_BareCommand_WritesLocalWhenBothExist, TestRunDisable_CreatesSettingsDirWhenMissing, TestRunDisable_WithLocalSettings, TestRunEnable, TestRunEnable_AlreadyEnabled, TestRunEnable_DefaultFlag_ClearsLocalDisable, TestRunEnable_LocalScope_PreservesLocalOnlyFields"
+     }
+    ]
+   },
+   "explained_failure": "r: cannot compare checkpoint abc222abc222 to itself\nWarning: Not a git repository. Initialize a new one in \"/var/folders/q3/kgw6y0qn21q77wsh491sswv40000gn/T/TestConfirmInitRepo_DefaultsToNo999417952/001\"? [y/N] \nWarning: Not a git repository. Initialize a new one in \"/var/folders/q3/kgw6y0qn21q77wsh491sswv40000gn/T/TestConfirmInitRepo_ExplicitYesProceeds302079205/001\"? [y/N] \n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n✓ Updated local ref 'entire/checkpoints/v1' from checkpoint remote\n--- FAIL: TestRunEnable (0.02s)\n    setup_test.go:271: runEnable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunEnable_AlreadyEnabled (0.02s)\n    setup_test.go:293: runEnable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n--- FAIL: TestRunEnable_DefaultFlag_ClearsLocalDisable (0.05s)\n    setup_test.go:495: runEnable(project=false) error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n--- FAIL: TestRunDisable (0.02s)\n    setup_test.go:822: runDisable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunDisable_AlreadyDisabled (0.02s)\n    setup_test.go:844: runDisable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunDisable_WithLocalSettings (0.02s)\n    setup_test.go:906: runDisable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunDisable_BareCommand_WritesLocalOverrideWhenProjectOnly (0.02s)\n    setup_test.go:974: runDisable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunDisable_CreatesSettingsDirWhenMissing (0.02s)\n    setup_test.go:1015: runDisable() in a repo with no .entire/ dir should succeed, got: failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunDisable_BareCommand_WritesLocalWhenBothExist (0.02s)\n    setup_test.go:1047: runDisable() error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n--- FAIL: TestRunEnable_LocalScope_PreservesLocalOnlyFields (0.03s)\n    setup_test.go:1179: runEnable(project=false) error = failed to save clone preferences: resolve git common dir: failed to get git common dir: exit status 128\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\nError: if any flags in the group [limit all] are set none of the others can be; [all limit] were all set\nUsage:\n  tokens profile [flags]\n\nFlags:\n      --all         Analyze all committed checkpoints\n  -h, --help        help for profile\n      --json        Output as JSON\n      --limit int   Maximum committed checkpoints to analyze (default 50)\n\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n--- FAIL: TestRunTrailListAll_PrintsLoginHintWhenNotLoggedIn (0.02s)\n    trail_cmd_test.go:438: error chain missing ErrNotLoggedIn: failed to resolve repository: parse remote URL: no protocol in URL: :///Users/Apple/Documents/fence-neathack/cli\n    trail_cmd_test.go:442: error = failed to resolve repository: parse remote URL: no protocol in URL: :///Users/Apple/Documents/fence-neathack/cli, want SilentError wrap\n    trail_cmd_test.go:449: errOut = \"\", want hint \"Not logged in. Run 'entire login' to authenticate.\"\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\n[entire] Your pre-push hook still runs, after Entire's (moved to /var/folders/q3/kgw6y0qn21q77wsh491sswv40000gn/T/TestUninstallGitHooks_ReportsRestoredHook1233410860/001/.git/hooks/pre-push.pre-entire).\nError: --json and --agent-brief are mutually exclusive\nUsage:\n  checkpoint tokens <checkpoint-id> [flags]\n\nExamples:\n  entire checkpoint tokens a1b2\n  entire checkpoint tokens a1b2 --compare c3d4\n  entire checkpoint tokens a1b2 --json\n\nFlags:\n      --agent-brief      Output compact next-step guidance for agents\n      --compare string   Compare against a baseline checkpoint ID\n  -h, --help             help for tokens\n      --json             Output as JSON\n\n  ✓ Created orphan ref entire/checkpoints/v1 for session metadata\nError: --last must be at least 1, got 0\nError: --last must be at least 1, got -1\nFAIL\nFAIL\tgithub.com/entireio/cli/cmd/entire/cli\t192.337s\nok  \tgithub.com/entireio/cli/cmd/entire/cli/settings\t2.743s\nFAIL"
+  },
+  {
+   "attempt": 2,
+   "worker": {
+    "report": "The fix is in place. The earlier regressions came from the new clone-preferences write failing in tests that run outside a git repo. I made that write conditional on `settings.ClonePreferencesPath(ctx)` succeeding, so outside a repo `runEnable` and `runDisable` skip it. The earlier attempt wrote the mirror unconditionally.\n\nI ran `go test ./cmd/entire/cli/ -run 'TestRunDisable|TestRunEnable'` and it passes. That pattern includes the previously failing `TestRunDisable*` and `TestRunEnable*` tests and the new worktree test. I did not run the rest of the suite.\n\nTest added: `TestRunDisable_AppliesToLinkedWorktrees`\nFiles changed: `cmd/entire/cli/settings/settings.go`, `cmd/entire/cli/setup.go`, `cmd/entire/cli/setup_disable_worktree_test.go`",
+    "error": null,
+    "cost_usd": 0.06834029999999999,
+    "duration_ms": 34694
+   },
+   "verification": {
+    "ok": true,
+    "reason": "1 test(s) newly passing, no regressions",
+    "repro_tests": [
+     "TestRunDisable_AppliesToLinkedWorktrees"
+    ],
+    "newly_passing": [
+     "TestRunDisable_AppliesToLinkedWorktrees"
+    ],
+    "regressions": [],
+    "files_changed": [
+     "cmd/entire/cli/settings/settings.go",
+     "cmd/entire/cli/setup.go",
+     "cmd/entire/cli/setup_disable_worktree_test.go"
+    ],
+    "runs": [
+     {
+      "purpose": "red: worker's tests without its fix",
+      "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+      "exit_code": 0,
+      "text": "BASELINE RECORDED: <baseline> (go test; 6102 passing, 3 failing, exit 1)",
+      "duration_ms": 191849,
+      "newly_passing": [],
+      "newly_failing": [],
+      "verdict": ""
+     },
+     {
+      "purpose": "green vs red: tests fixed by the change",
+      "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+      "exit_code": 0,
+      "text": "NEWLY PASSING (1): TestRunDisable_AppliesToLinkedWorktrees\nPRE-EXISTING FAILURES (also failing before your edit; not caused by your change) (2): TestRunTrailListAll_PrintsLoginHintWhenNotLoggedIn, TestSearchCmd_CodeFlagRequiresQuery\nVERDICT: PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed.",
+      "duration_ms": 206358,
+      "newly_passing": [
+       "TestRunDisable_AppliesToLinkedWorktrees"
+      ],
+      "newly_failing": [],
+      "verdict": "PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed."
+     },
+     {
+      "purpose": "green vs pre-edit baseline: regressions",
+      "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+      "exit_code": 0,
+      "text": "PRE-EXISTING FAILURES (also failing before your edit; not caused by your change) (2): TestRunTrailListAll_PrintsLoginHintWhenNotLoggedIn, TestSearchCmd_CodeFlagRequiresQuery\nVERDICT: NO EFFECT — the target tests behave exactly as before your edit.",
+      "duration_ms": 194967,
+      "newly_passing": [],
+      "newly_failing": [],
+      "verdict": "NO EFFECT — the target tests behave exactly as before your edit."
+     }
+    ]
+   }
+  }
+ ],
+ "work_copy": "work/2274-baseline",
+ "commit": {
+  "branch": "fence/issue-2274",
+  "commit": "bab657d6a00f6331c663f79522b35367985b14bd"
+ },
+ "files_changed": [
+  "cmd/entire/cli/settings/settings.go",
+  "cmd/entire/cli/setup.go",
+  "cmd/entire/cli/setup_disable_worktree_test.go"
+ ],
+ "tests_newly_passing": [
+  "TestRunDisable_AppliesToLinkedWorktrees"
+ ],
+ "baseline": {
+  "purpose": "pre-edit baseline (recorded after the fact)",
+  "command": "entire graph verify --test go test -v ./cmd/entire/cli/ ./cmd/entire/cli/settings/ ...",
+  "exit_code": 0,
+  "text": "BASELINE RECORDED: <baseline> (go test; 6102 passing, 2 failing, exit 1)",
+  "duration_ms": 205262,
+  "newly_passing": [],
+  "newly_failing": [],
+  "verdict": ""
+ },
+ "duration_s": 1659.3,
+ "trace_spans": 11
+}

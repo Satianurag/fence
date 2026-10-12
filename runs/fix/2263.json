@@ -1,0 +1,100 @@
+{
+ "issue": 2263,
+ "title": "Lefthook is classified as not overwriting Entire's hooks, so users get the weaker warning and no permanent fix",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "decision",
+  "confidence": 0.8,
+  "rationale": "The original commit and plan explicitly chose to treat only Husky as overwriting hooks, giving it copy-paste instructions while other managers (including Lefthook) get a note to re-run `entire enable`. The Lefthook=false classification was deliberate at the time, although the issue argues the premise is factually wrong.",
+  "quotes": [
+   {
+    "evidence_id": 1,
+    "source": "commit_message",
+    "commit": "bace45e26b",
+    "checkpoint": "2939ce7ed7da",
+    "quote": "Husky\nusers get copy-paste instructions for durable integration; other\nmanagers get a note to re-run `entire enable` if hooks are overwritten."
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "located_by": "named",
+  "search_error": null,
+  "files_named": 5,
+  "symbols_named": 7,
+  "spans": 4,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/hook_managers.go",
+    27,
+    46,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/hook_managers.go",
+    80,
+    80,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/hook_managers.go",
+    86,
+    93,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/hook_managers_test.go",
+    65,
+    65,
+    "file:line"
+   ]
+  ],
+  "lines": 30,
+  "lines_linked": 21,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "bace45e26b",
+   "checkpoint": "2939ce7ed7da",
+   "text": "feat: detect external hook managers and warn during `entire enable`\n\nDetect Husky, Lefthook, pre-commit, and Overcommit via filesystem\nchecks and show actionable warnings after hook installation. Husky\nusers get copy-paste instructions for durable integration; other\nmanagers get a note to re-run `entire enable` if hooks are overwritten.\n\nLefthook detection covers all valid config patterns:\n{.,}lefthook{,-local}.{yml,yaml,json,toml}"
+  },
+  {
+   "source": "transcript",
+   "commit": "bace45e26b",
+   "checkpoint": "2939ce7ed7da",
+   "text": "[user] oal:** Detect when an external hook manager is in use, warn the user during `entire enable`, and provide copy-paste instructions for a durable integration.\n\n## New Files\n\n### `cmd/entire/cli/strategy/hook_managers.go`\n\n**Data model:**\n```go\ntype HookManager struct {\n    Name       string // \"Husky\", \"Lefthook\", \"pre-commit\", \"Overcommit\"\n    ConfigPath string // relative path that triggered detection (e.g., \".husky/\")\n    OverwritesHooks bool // true if tool will overwrite Entire's hooks on reinstall\n}\n```\n\n**Detection function:**\n```go\nfunc DetectHookManagers(repoRoot string) []HookManager\n``\n[assistant] Now I have a good understanding of the codebase. Let me implement the plan. I need to:\n\n1. Create `cmd/entire/cli/strategy/hook_managers.go` - detection and warning logic\n2. Create `cmd/entire/cli/strategy/hook_managers_test.go` - tests\n3. Modify `cmd/entire/cli/setup.go` - add `CheckAndWarnHookManagers` calls at 4 locations\n\nLet me look at the `extractCommandLine` helper idea from the plan more carefully. The plan says to use `buildHookSpecs(cmdPrefix)` and extract the command lines from those specs to keep the copy-paste instructions always in sync with actual hook content.\n\n\nI'm also checki\n[assistant] All tests pass, including the new ones. Let me do a quick summary of the changes.\n\n## Summary\n\nCreated 2 new files and modified 1 existing file:\n\n### New: `cmd/entire/cli/strategy/hook_managers.go`\n- **`HookManager` struct** — holds name, config path, and whether the tool overwrites hooks\n- **`DetectHookManagers(repoRoot)`** — filesystem-only detection (os.Stat) for Husky v9+, Lefthook, pre-commit, and Overcommit. Deduplicates managers (e.g., `lefthook.yml` + `.lefthook.yml`).\n- **`HookManagerWarning(managers, cmdPrefix)`** — generates warning text. For tools that overwrite hooks (Husky), show"
+  },
+  {
+   "source": "prompt",
+   "commit": "bace45e26b",
+   "checkpoint": "2939ce7ed7da",
+   "text": "Implement the following plan:\n\n# Detect External Hook Managers and Warn Users\n\n## Context\n\nPR #355 fixed hook installation to use `git rev-parse --git-path hooks`, which correctly resolves `core.hooksPath` (e.g., Husky's `.husky/_/`). However, Husky regenerates `.husky/_/` on every `npm install` (via the `prepare` script), so Entire's hooks get overwritten.\n\n**Goal:** Detect when an external hook manager is in use, warn the user during `entire enable`, and provide copy-paste instructions for a durable integration.\n\n## New Files\n\n### `cmd/entire/cli/strategy/hook_managers.go`\n\n**Data model:**\n```go\ntype HookManager struct {\n    Name       string // \"Husky\", \"Lefthook\", \"pre-commit\", \"Overcommit\"\n    ConfigPath string // relative path that triggered detection (e.g., \".husky/\")\n    Overwrites"
+  }
+ ],
+ "cost": {
+  "usd": 0.00477,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 203,
+  "cache_read_tokens": 4718,
+  "cache_write_tokens": 566
+ },
+ "trace_id": "4480f8efcc171eed4fae66fedc77ad66",
+ "error": null,
+ "mode": "fence",
+ "action": "not_fixed",
+ "attempts": [],
+ "work_copy": null,
+ "commit": null,
+ "files_changed": [],
+ "tests_newly_passing": [],
+ "question": "runs/questions/2263.md",
+ "reason": "verdict is decision; Fence only changes code on a mistake verdict and asked a human instead",
+ "duration_s": 8.6,
+ "trace_spans": 8
+}

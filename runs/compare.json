@@ -1,0 +1,254 @@
+{
+ "what": "Per issue and mode: fence = investigate, then fix only on a mistake verdict; baseline = the issue goes straight to the same worker. Both are verified the same way (the worker's test must fail without its fix, pass with it, nothing regresses).",
+ "limits": [
+  "Each cell is one run; worker output and cost vary between runs.",
+  "Baseline cost has no investigation in it; fence cost includes the verdict call.",
+  "\"verified\" says the worker's own test passes and nothing in the tested packages regressed. It does not say the change is the fix a maintainer would want."
+ ],
+ "rows": [
+  {
+   "issue": 2256,
+   "mode": "fence",
+   "ran": true,
+   "verdict": "mistake",
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/trailers/append_indented_test.go",
+    "cmd/entire/cli/trailers/trailers.go"
+   ],
+   "tests_newly_passing": [
+    "TestAppendCheckpointTrailer_IndentedPseudoTrailer",
+    "TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line",
+    "TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line",
+    "TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line"
+   ],
+   "verified": true,
+   "verification": "4 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.138093,
+   "duration_s": 48.5,
+   "commit": "4147ce849ccc50cdbad6d32a4e3274ed833e3b5c",
+   "trace_id": "dc90932fbe6e2d57187313df187b5a36",
+   "error": null
+  },
+  {
+   "issue": 2256,
+   "mode": "baseline",
+   "ran": true,
+   "verdict": null,
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/trailers/append_indented_test.go",
+    "cmd/entire/cli/trailers/trailers.go"
+   ],
+   "tests_newly_passing": [
+    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph",
+    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph/space_indented",
+    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph/tab_indented",
+    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph/trailer_with_continuation"
+   ],
+   "verified": true,
+   "verification": "4 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.093412,
+   "duration_s": 38.6,
+   "commit": "4b5ceb145db87080e5b6ac9f6e561728d6b00532",
+   "trace_id": "18b04c494152d886db3b2252d3410b1f",
+   "error": null
+  },
+  {
+   "issue": 1870,
+   "mode": "fence",
+   "ran": true,
+   "verdict": "mistake",
+   "outcome": "fix",
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/agent/pi/lifecycle.go",
+    "cmd/entire/cli/agent/pi/subagent_session_id_test.go"
+   ],
+   "tests_newly_passing": [
+    "TestExtractSessionIDFromPath_SubagentRunsAreDistinct"
+   ],
+   "verified": true,
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.140189,
+   "duration_s": 48.2,
+   "commit": "94974c98759da84f1f6bfc723a294d5e7b07f9b6",
+   "trace_id": "4b08bbcd7af1b814d70c9023c2bf7f76",
+   "error": null
+  },
+  {
+   "issue": 1870,
+   "mode": "baseline",
+   "ran": true,
+   "verdict": null,
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/agent/pi/lifecycle.go",
+    "cmd/entire/cli/agent/pi/subagent_session_id_test.go"
+   ],
+   "tests_newly_passing": [
+    "TestExtractSessionIDFromPath_SubagentRunsAreDistinct"
+   ],
+   "verified": true,
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.064954,
+   "duration_s": 34.1,
+   "commit": "26d602ee518ae1fb0203266c00f182a20ccf464c",
+   "trace_id": "d71038fcb1320ee301e807e547548c15",
+   "error": null
+  },
+  {
+   "issue": 2274,
+   "mode": "fence",
+   "ran": true,
+   "verdict": "mistake",
+   "outcome": "fix",
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/settings/clone_enabled_test.go",
+    "cmd/entire/cli/settings/settings.go"
+   ],
+   "tests_newly_passing": [
+    "TestLoad_ClonePreferencesEnabledAppliesAndLocalWins"
+   ],
+   "verified": true,
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.12145,
+   "duration_s": 56.6,
+   "commit": "eefa74936ad24c838d95d88dab98cabf3f0efd2a",
+   "trace_id": "74ef6e9ca12eaf9bd82e755d69f0194a",
+   "error": null
+  },
+  {
+   "issue": 2274,
+   "mode": "baseline",
+   "ran": true,
+   "verdict": null,
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/settings/settings.go",
+    "cmd/entire/cli/setup.go",
+    "cmd/entire/cli/setup_disable_worktree_test.go"
+   ],
+   "tests_newly_passing": [
+    "TestRunDisable_AppliesToLinkedWorktrees"
+   ],
+   "verified": true,
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 2,
+   "cost_usd": 0.206881,
+   "duration_s": 1659.3,
+   "commit": "bab657d6a00f6331c663f79522b35367985b14bd",
+   "trace_id": "ac2f762e4d41cecc9f027c1a65707513",
+   "error": null
+  },
+  {
+   "issue": 2686,
+   "mode": "fence",
+   "ran": true,
+   "verdict": "mistake",
+   "outcome": "fix",
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "internal/entireclient/httpclient/proxy_test.go",
+    "internal/entireclient/httpclient/transport.go"
+   ],
+   "tests_newly_passing": [
+    "TestNewTransportHonorsProxyEnvironment"
+   ],
+   "verified": true,
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.076277,
+   "duration_s": 47.0,
+   "commit": "2d7a55841f5a2699512c91fd2d22f7ab321913c5",
+   "trace_id": "6b13f62d9ef742408a29fd83bb247695",
+   "error": null
+  },
+  {
+   "issue": 2686,
+   "mode": "baseline",
+   "ran": true,
+   "verdict": null,
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "internal/entireclient/httpclient/proxy_test.go",
+    "internal/entireclient/httpclient/transport.go"
+   ],
+   "tests_newly_passing": [
+    "TestTransportsHonorProxyEnv"
+   ],
+   "verified": true,
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.055758,
+   "duration_s": 24.4,
+   "commit": "71e6bb6214bce3dae30d0a70541654e1cffa9b3c",
+   "trace_id": "42c3ccc60136e316e64ee8d661c40133",
+   "error": null
+  },
+  {
+   "issue": 2263,
+   "mode": "fence",
+   "ran": true,
+   "verdict": "decision",
+   "outcome": "ask",
+   "action": "not_fixed",
+   "reason": "verdict is decision; Fence only changes code on a mistake verdict and asked a human instead",
+   "files_changed": [],
+   "tests_newly_passing": [],
+   "verified": false,
+   "verification": null,
+   "attempts": 0,
+   "cost_usd": 0.00477,
+   "duration_s": 8.6,
+   "commit": null,
+   "trace_id": "4480f8efcc171eed4fae66fedc77ad66",
+   "error": null
+  },
+  {
+   "issue": 2263,
+   "mode": "baseline",
+   "ran": true,
+   "verdict": null,
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/strategy/hook_managers.go",
+    "cmd/entire/cli/strategy/hook_managers_lefthook_test.go",
+    "cmd/entire/cli/strategy/hook_managers_test.go"
+   ],
+   "tests_newly_passing": [
+    "TestDetectHookManagers_Lefthook",
+    "TestLefthookOverwritesHooksWarning"
+   ],
+   "verified": true,
+   "verification": "2 test(s) newly passing, no regressions",
+   "attempts": 1,
+   "cost_usd": 0.117362,
+   "duration_s": 455.7,
+   "commit": "c68bba11366fcbb637187063d45637a7bcf91477",
+   "trace_id": "95a5e17b1d3d5c2c52f8fc9326633707",
+   "error": null
+  }
+ ]
+}
