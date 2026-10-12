@@ -1,0 +1,5 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Part C accepted; thank you for putting the "always mistake scores higher" caveat in the output itself. Continue with D and the open scan.
+
+One addition when the scan is done: for the six closed-completed issues Fence called `decision` (#275, #601, #1262, #1767, #1876, #2362) and for whatever the open scan calls `decision`, write runs/decisions.md with, per issue: the quote Fence relied on (commit and checkpoint id), what the maintainers actually did, and a one-line reading of whether the recorded choice was later reversed, was never really a choice, or whether Fence misread the evidence. These rows are where the product either shows its value or does not, so read the evidence rather than summarising the verdict.
+</cross-session-message>
