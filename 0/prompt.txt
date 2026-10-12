@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>br22l5bso</task-id>
+<tool-use-id>toolu_01MPFBp3y8g9SNBG3Ey8sZTG</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/b621b9ad-934b-4824-8368-b2b2ece057b4/tasks/br22l5bso.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the baseline mode (no investigation) on issue 2256" completed (exit code 0)</summary>
+</task-notification>
