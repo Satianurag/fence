@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import config, evidence, fix, memory, trace
+from . import config, evaluate, evidence, fix, memory, trace
 from .resolve import Repo, resolve_issue
 from .verdict import PRECEDENT, LLMCall, Verdict, VerdictError, classify
 
@@ -103,14 +103,14 @@ def finish(run: dict[str, Any], tracer: trace.Tracer, cfg: config.Config, out_pa
 
 
 def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Path, at_created: bool = True, send_trace: bool = True, search: bool = True,
-                use_memory: bool = True) -> dict[str, Any]:
+                use_memory: bool = True, ask: bool = True, name: str = "fence.investigate") -> dict[str, Any]:
     if not cfg.target:
         raise SystemExit("FENCE_TARGET is not set")
     issue = load_issue(issues_path, number)
-    tracer = trace.Tracer("fence.investigate", cfg.neatlogs_project, input=dict(issue=number, title=issue["title"]))
+    tracer = trace.Tracer(name, cfg.neatlogs_project, input=dict(issue=number, title=issue["title"]))
     run = new_run(issue, cfg)
     try:
-        investigate_steps(issue, cfg, tracer, run, [], at_created, search, use_memory, out_dir)
+        investigate_steps(issue, cfg, tracer, run, [], at_created, search, use_memory, out_dir if ask else None)
         tracer.root.output = dict(run["verdict"], outcome=run["outcome"])
     except Exception as e:
         run["error"] = f"{type(e).__name__}: {e}"
@@ -252,11 +252,58 @@ def main(argv: list[str] | None = None) -> int:
     ans = sub.add_parser("answer", parents=[common], help="store a maintainer's ruling for an issue and run the issue again")
     ans.add_argument("ruling", help="the ruling, in the maintainer's words")
     ans.add_argument("--source", required=True, help="who gave the ruling and where, e.g. a comment URL")
+    ev = sub.add_parser("eval", help="investigate every closed issue that locates by name and traces to a checkpoint; compare with what happened")
+    ev.add_argument("--issues", type=Path, default=config.ROOT / "data" / "cli_issues.json")
+    ev.add_argument("--stored", type=Path, default=config.ROOT / "data" / "trace_at_created.json", help="resolver output used to pick the issues")
+    ev.add_argument("--out", type=Path, default=config.ROOT / "runs")
+    ev.add_argument("--workers", type=int, default=4)
+    ev.add_argument("--limit", type=int, default=0, help="only the first N issues (0 = all)")
+    ev.add_argument("--fresh", action="store_true", help="re-run issues that already have a result in runs/eval/")
+    ev.add_argument("--no-trace", action="store_true")
+    ev.add_argument("--open", action="store_true", help="scan open issues at HEAD instead (no comparison); writes runs/scan.json")
+    cp = sub.add_parser("compare", help="assemble runs/compare.json from the fix runs of both modes")
+    cp.add_argument("--issues", required=True, help="comma-separated issue numbers")
+    cp.add_argument("--out", type=Path, default=config.ROOT / "runs")
     fx = sub.add_parser("fix", parents=[common], help="investigate, and on a mistake verdict fix the issue in a private work copy")
     fx.add_argument("--baseline", action="store_true", help="skip investigation and send the issue straight to the worker")
     fx.add_argument("--work", type=Path, default=config.ROOT / "work", help="directory for work copies")
     a = ap.parse_args(argv)
     cfg = config.load()
+
+    if a.cmd == "compare":
+        report = evaluate.build_compare(a.out, [int(x) for x in a.issues.split(",")])
+        for r in report["rows"]:
+            print(f"#{r['issue']} {r['mode']}: " + (f"verdict={r['verdict']} action={r['action']} verified={r['verified']} files={len(r['files_changed'])} "
+                  f"newly_passing={len(r['tests_newly_passing'])} attempts={r['attempts']} cost=${r['cost_usd']:.4f} duration={r['duration_s']}s" if r["ran"] else "not run"))
+        print(f"wrote {a.out / 'compare.json'}")
+        return 0
+
+    if a.cmd == "eval":
+        with open(a.issues) as fh:
+            issues = json.load(fh)
+        with open(a.stored) as fh:
+            numbers = evaluate.select(issues, json.load(fh), "open" if a.open else "closed")
+        numbers = numbers[:a.limit] if a.limit else numbers
+        name = "scan" if a.open else "eval"
+        report = evaluate.run_eval(
+            issues, numbers,
+            lambda n: investigate(n, cfg, a.issues, a.out / name, at_created=not a.open, send_trace=not a.no_trace, search=False, use_memory=False,
+                                  ask=False, name=f"fence.{name}"),
+            a.out, workers=a.workers, resume=not a.fresh, name=name,
+            what="Fence verdict at HEAD for every open issue that locates by name and traces to at least one checkpoint. Used to pick issues to fix; "
+                 "open issues have no outcome to compare with." if a.open else None,
+            limits=["Each issue was run once; verdicts vary between runs.", "Open issues have no outcome yet, so nothing here is checked against reality."] if a.open else None)
+        sm = report["summary"]
+        print(f"issues: {sm['issues']} | errors: {sm['errors']} | total cost: ${sm['total_cost_usd']:.4f}")
+        for reason, counts in sm["verdict_by_state_reason"].items():
+            print(f"  {reason}: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        ag = sm["agreement"]
+        print(f"agreement where both sides give an answer: {ag['agree']}/{ag['compared']}" + (f" ({ag['rate']:.0%})" if ag["rate"] is not None else ""))
+        print("Limits of this comparison:")
+        for l in report["limits"]:
+            print(f"  - {l}")
+        print(f"wrote {a.out / 'eval.json'}")
+        return 1 if sm["errors"] else 0
 
     if a.cmd == "investigate":
         run = investigate(a.issue, cfg, a.issues, a.out, at_created=not a.head, send_trace=not a.no_trace, search=not a.no_search, use_memory=not a.no_memory)
