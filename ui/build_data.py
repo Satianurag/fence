@@ -3,10 +3,12 @@
 
 usage: build_data.py <cli clone> <trace_at_created.json> <cli_issues.json> <out dir> [featured issue]
 
-Everything here is read from git or from data/ files produced by fence/resolve.py. Nothing is invented:
-panels whose source does not exist yet (agent verdicts, run costs) are left out of the JSON.
+Everything here is read from git, from data/ files produced by fence/resolve.py, or from the run records
+under runs/ (fix runs, compare.json, eval.json, scan.json, decisions.md). Nothing is invented.
 """
-import collections, datetime, json, re, struct, subprocess, sys
+import collections, datetime, json, os, re, struct, subprocess, sys
+
+RUNS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runs")
 
 repo, trace_path, issues_path, out = sys.argv[1:5]
 FEATURED = int(sys.argv[5]) if len(sys.argv) > 5 else 2256
@@ -123,27 +125,91 @@ def issue_row(n):
 
 ranked = sorted([t for t in trace.values() if t["checkpoints"]], key=lambda t: -t["lines_linked"])
 top = [issue_row(t["number"]) for t in ranked[:14]]
-feat_t = trace[FEATURED]
-path = []
-for e in feat_t["evidence"]:
-    c = commit_by_hash.get(e["commit"][:10])
-    if not c:
-        continue
-    files = sorted(c["files"], key=lambda f: -(f[1] + f[2]))
-    f0 = next((f for f in files if f[0] in xof), None)
-    if not f0:
-        continue
-    path.append(dict(commit=e["commit"][:10], date=e["date"], subject=clean(e["subject"], 70), body=clean(e.get("body"), 220),
-                     file=f0[0][len(PREFIX):], x=xof[f0[0]], z=zof(e["date"]), lines=e["lines"], checkpoint=e["checkpoint"], linked=e["lines"] if e["checkpoint"] else 0,
-                     agent=e.get("agent") or "", prompt=clean(e.get("prompt"), 160), promptChars=int(e.get("prompt_chars") or 0),
-                     added=sum(f[1] for f in c["files"]), deleted=sum(f[2] for f in c["files"])))
-path.sort(key=lambda p: p["date"])
-spans = [dict(file=s[0][len(PREFIX):], a=s[1], b=s[2], sym=s[3].replace("func:", "")) for s in feat_t["span_list"]]
+
+
+def load(name):
+    with open(os.path.join(RUNS, name)) as fh:
+        return json.load(fh)
+
+
+def evidence_path(t):
+    """Evidence commits of one resolver result, oldest first, placed on the terrain grid."""
+    path = []
+    for e in t["evidence"]:
+        c = commit_by_hash.get(e["commit"][:10])
+        if not c:
+            continue
+        files = sorted(c["files"], key=lambda f: -(f[1] + f[2]))
+        f0 = next((f for f in files if f[0] in xof), None)
+        if not f0:
+            continue
+        path.append(dict(commit=e["commit"][:10], date=e["date"], subject=clean(e["subject"], 70), body=clean(e.get("body"), 220),
+                         file=f0[0][len(PREFIX):], x=xof[f0[0]], z=zof(e["date"]), lines=e["lines"], checkpoint=e["checkpoint"], linked=e["lines"] if e["checkpoint"] else 0,
+                         agent=e.get("agent") or "", prompt=clean(e.get("prompt"), 160), promptChars=int(e.get("prompt_chars") or 0),
+                         added=sum(f[1] for f in c["files"]), deleted=sum(f[2] for f in c["files"])))
+    path.sort(key=lambda p: p["date"])
+    return path
+
+
+def run_summary(run):
+    """What a fix run did, reduced to what the dashboard shows."""
+    if not run:
+        return None
+    v = run.get("verdict") or {}
+    last = (run.get("attempts") or [{}])[-1].get("verification") or {}
+    return dict(verdict=v.get("verdict"), confidence=v.get("confidence"), rationale=clean(v.get("rationale"), 420),
+                quotes=[dict(quote=clean(q["quote"], 240), source=q["source"], commit=q["commit"], checkpoint=q["checkpoint"]) for q in v.get("quotes") or []],
+                outcome=run.get("outcome"), action=run.get("action"), reason=clean(run.get("reason"), 200), question=run.get("question"),
+                attempts=len(run.get("attempts") or []), files=run.get("files_changed") or [], tests=run.get("tests_newly_passing") or [],
+                verification=clean(last.get("reason"), 160), commit=((run.get("commit") or {}).get("commit") or "")[:10], branch=(run.get("commit") or {}).get("branch"),
+                cost=(run.get("cost") or {}).get("usd", 0.0), duration=run.get("duration_s"), trace=run.get("trace_id"))
+
+
+def replay(n):
+    t, i = trace[n], issues[n]
+    path = evidence_path(t)
+    agents = collections.Counter(p["agent"] or "UNKNOWN" for p in path)
+    fix = lambda suffix: load(f"fix/{n}{suffix}.json") if os.path.exists(os.path.join(RUNS, f"fix/{n}{suffix}.json")) else None
+    return dict(issue=dict(number=n, title=clean(i["title"], 110), state=i["state"], created=(i.get("created_at") or "")[:10], rev=t["rev"],
+                           checkpoints=sum(1 for p in path if p["checkpoint"])),
+                path=path, spans=[dict(file=s[0][len(PREFIX):], a=s[1], b=s[2], sym=s[3].replace("func:", "")) for s in t["span_list"]],
+                agents=[dict(name=k, count=v) for k, v in agents.most_common()], fence=run_summary(fix("")), baseline=run_summary(fix(".baseline")))
+
+
+def parse_decisions(text):
+    """Entries of runs/decisions.md: one per '### #N title' section."""
+    out, group = [], ""
+    for block in re.split(r"\n(?=##+ )", text):
+        head = block.split("\n", 1)[0]
+        if head.startswith("## "):
+            group = head[3:].strip()
+            continue
+        m = re.match(r"### #(\d+) (.*)", head)
+        if not m:
+            continue
+        flat = re.sub(r"\s+", " ", block).replace('\\"', "'")
+        quote = re.search(r"\*\*Quote\*\* \(([^,]+), commit `([0-9a-f]+)`, checkpoint `([^`]+)`\): \"(.*?)\"\.?(?= (?:Second|Also|Two) | - \*\*What)", flat)
+        did = re.search(r"\*\*What maintainers did\*\*: (.*?) - \*\*Reading", flat)
+        reading = re.search(r"\*\*Reading: (.*?)\.\*\* (.*)$", flat)
+        out.append(dict(number=int(m.group(1)), title=clean(m.group(2), 90), group=group.split(",")[0].lower(),
+                        source=quote.group(1) if quote else "", commit=quote.group(2) if quote else "", checkpoint=quote.group(3) if quote else "",
+                        quote=clean(quote.group(4), 260) if quote else "", did=clean(did.group(1), 300) if did else "",
+                        reading=reading.group(1) if reading else "", note=clean(reading.group(2), 320) if reading else ""))
+    return out
+
+
+compare = load("compare.json")
+evalr = load("eval.json")
+scan = load("scan.json")
+with open(os.path.join(RUNS, "decisions.md")) as fh:
+    decisions = parse_decisions(fh.read())
+replays = {str(n): replay(n) for n in dict.fromkeys([FEATURED] + [r["issue"] for r in compare["rows"]])}
+replays = {k: r for k, r in replays.items() if r["path"]}  # an issue whose evidence lies outside cmd/entire/cli has nothing to draw
+feat = replays[str(FEATURED)]
+path, spans = feat["path"], feat["spans"]
 
 months = [dict(m=m, **{k: v for k, v in s.items() if k != "agents" and k != "m"}) for m, s in month_stats.items()]
-agents = collections.Counter()
-for p in path:
-    agents[p["agent"] or "UNKNOWN"] += 1
+agents = collections.Counter(p["agent"] or "UNKNOWN" for p in path)
 states = collections.Counter()
 for i in issues.values():
     states["open" if i["state"] == "open" else (i.get("state_reason") or "closed")] += 1
@@ -156,12 +222,20 @@ head = git("log", "-1", "--format=%h|%as").strip().split("|")
 fence = dict(
     meta=dict(repo="entireio/cli", head=head[0], first=str(first), last=str(last), commits=len(commits), files=len(head_files),
               generated=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-              sources=["git log --numstat (entireio/cli)", "git ls-tree HEAD", "entireio/cli-checkpoints refs", "data/trace_at_created.json", "data/cli_issues.json"]),
+              sources=["git log --numstat (entireio/cli)", "git ls-tree HEAD", "entireio/cli-checkpoints refs", "data/trace_at_created.json", "data/cli_issues.json",
+                       "runs/fix/*.json", "runs/compare.json", "runs/eval.json", "runs/scan.json", "runs/decisions.md"]),
     grid=dict(w=W, h=H, xLabels=[dict(name=p["name"], x0=p["x0"], x1=p["x1"]) for p in packages], t0=str(first), t1=str(last)),
     packages=packages,
-    issue=dict(number=FEATURED, title=clean(issues[FEATURED]["title"], 110), state=issues[FEATURED]["state"],
-               created=(issues[FEATURED].get("created_at") or "")[:10], rev=feat_t["rev"]),
-    path=path, spans=spans, issues=top, months=months, agents=[dict(name=k, count=v) for k, v in agents.most_common()], cumulative=cum, states=dict(states),
+    issue=feat["issue"], path=path, spans=spans, replays=replays,
+    compare=dict(what=compare["what"], limits=compare["limits"], rows=[
+        dict(issue=r["issue"], mode=r["mode"], verdict=r.get("verdict"), action=r.get("action"), verified=r.get("verified"), attempts=r.get("attempts"),
+             files=len(r.get("files_changed") or []), tests=len(r.get("tests_newly_passing") or []), cost=r.get("cost_usd"), duration=r.get("duration_s"), trace=r.get("trace_id"))
+        for r in compare["rows"]]),
+    eval=dict(what=evalr["what"], limits=evalr["limits"], table=evalr["summary"]["verdict_by_state_reason"], agreement=evalr["summary"]["agreement"],
+              baseline=evalr["summary"]["always_mistake_baseline"], issues=evalr["summary"]["issues"], cost=evalr["summary"]["total_cost_usd"]),
+    scan=dict(issues=scan["summary"]["issues"], cost=scan["summary"]["total_cost_usd"],
+              verdicts=dict(collections.Counter(r["verdict"] for r in scan["issues"]))),
+    decisions=decisions, issues=top, months=months, agents=[dict(name=k, count=v) for k, v in agents.most_common()], cumulative=cum, states=dict(states),
     totals=dict(issues=len(issues), traced=sum(1 for t in trace.values() if t["checkpoints"]), located=sum(1 for t in trace.values() if t["spans"]),
                 commits=len(commits), checkpointCommits=sum(1 for c in commits if c["ckpt"]), coveragePct=round(100 * sum(1 for v in cov if v > 0) / len(cov), 1)),
 )

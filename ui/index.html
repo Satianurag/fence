@@ -38,7 +38,7 @@
       </div>
     </section>
 
-    <section class="panel checkpoints" style="flex: 1.6">
+    <section class="panel checkpoints" style="flex: 1.1">
       <header><span class="tag">B</span>EVIDENCE CHAIN<small id="chain-note"></small></header>
       <div class="body">
         <table>
@@ -54,14 +54,16 @@
     </section>
 
     <section class="panel">
-      <header><span class="tag">D</span>ISSUES PER MONTH<small id="hist-note"></small></header>
-      <div class="body"><canvas id="finish"></canvas></div>
+      <header><span class="tag">D</span>EVAL · VERDICT VS OUTCOME<small id="eval-note"></small></header>
+      <div class="body"><div class="evalbox" id="eval"></div></div>
     </section>
   </aside>
 
   <main class="center">
     <section class="panel viewport">
-      <header><span class="tag">01</span><span id="view-title">EVIDENCE TRAIL</span><small id="view-note"></small></header>
+      <header><span class="tag">01</span><span id="view-title">EVIDENCE TRAIL</span>
+        <label class="pick">ISSUE <select id="issue-select" aria-label="Issue to replay"></select></label>
+        <small id="view-note"></small></header>
       <div class="stages" id="stages"></div>
       <div class="scene">
         <canvas id="scene"></canvas>
@@ -73,6 +75,7 @@
           <div class="card-ck" id="c-ck"></div>
           <div class="card-prompt"><small>PROMPT ON RECORD</small><p id="c-prompt"></p></div>
         </div>
+        <div class="outcome" id="outcome"></div>
         <div class="hint">DRAG · ORBIT &nbsp;&nbsp; WHEEL · ZOOM &nbsp;&nbsp; DBL-CLICK · RESET</div>
       </div>
     </section>
@@ -85,8 +88,8 @@
         </div>
       </section>
       <section class="panel">
-        <header><span class="tag">F</span>ADDED / DELETED PER MONTH<small>GIT NUMSTAT</small></header>
-        <div class="body"><canvas id="gradient"></canvas></div>
+        <header><span class="tag">F</span>FENCE VS BASELINE<small id="cmp-note"></small></header>
+        <div class="body"><div class="cmp" id="compare"></div></div>
       </section>
     </div>
   </main>
@@ -108,7 +111,7 @@
     </section>
 
     <section class="panel">
-      <header><span class="tag">I</span><span id="results-title">ISSUE STATES</span><small>BY EVIDENCE</small></header>
+      <header><span class="tag">I</span><span id="results-title">DECISION VERDICTS · READ AGAINST REALITY</span><small id="dec-note"></small></header>
       <div class="body"><div class="results" id="results"></div></div>
     </section>
 

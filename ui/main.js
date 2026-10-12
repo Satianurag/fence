@@ -1,6 +1,7 @@
 // Fence dashboard. Plain ES module, no dependencies.
 // Every number on screen is read from data/fence.json (built by build_data.py from the real git history
-// of entireio/cli and Fence's resolver output). The replay only animates through that recorded evidence.
+// of entireio/cli, Fence's resolver output and the run records under runs/). The replay only animates
+// through that recorded evidence and ends on the verdict and action the recorded run reached.
 
 const $ = (id) => document.getElementById(id);
 const FONT = '"Plex", ui-monospace, monospace';
@@ -239,6 +240,11 @@ void main() {
 
 // ---------- data ----------
 const D = await fetch("data/fence.json").then((r) => r.json());
+// ?issue=N picks which recorded run is replayed; the selector in the viewport header sets it
+const QUERY = new URLSearchParams(location.search);
+const REPLAY = D.replays[QUERY.get("issue")] || D.replays[String(D.issue.number)];
+Object.assign(D, { issue: REPLAY.issue, path: REPLAY.path, spans: REPLAY.spans, agents: REPLAY.agents });
+const RUN = REPLAY.fence, BASE = REPLAY.baseline;
 const [heightBuf, coverBuf] = await Promise.all(["data/fence-terrain.bin", "data/fence-cover.bin"].map((f) => fetch(f).then((r) => r.arrayBuffer())));
 const HEIGHTS = new Int16Array(heightBuf), COVER = new Uint8Array(coverBuf);
 const { w: GW, h: GH } = D.grid;
@@ -389,7 +395,7 @@ function scene3d(canvas, hudCanvas) {
       c.strokeStyle = style; c.lineWidth = width; c.setLineDash(dash); c.beginPath();
       let open = false;
       for (let k = 0; k <= 96; k++) {
-        const u = to * k / 96, i = Math.min(N - 2, Math.floor(u)), f = u - i;
+        const u = to * k / 96, i = clamp(Math.floor(u), 0, N - 2), f = u - i;
         const a = bars[i], b = bars[i + 1];
         const s = P([a.x + (b.x - a.x) * f, a.h + (b.h - a.h) * f, a.z + (b.z - a.z) * f]);
         if (!s) { open = false; continue; }
@@ -399,9 +405,11 @@ function scene3d(canvas, hudCanvas) {
       c.stroke();
     };
     c.lineJoin = "round"; c.lineCap = "round";
-    route(N - 1, "rgba(255,255,255,0.4)", 1, [2, 3]);
-    c.shadowColor = `rgba(${AMBER},0.9)`; c.shadowBlur = 8;
-    route(rp.pos, `rgba(${AMBER},0.95)`, 1.6, []);
+    if (N > 1) {                                // a single evidence commit has no path to draw
+      route(N - 1, "rgba(255,255,255,0.4)", 1, [2, 3]);
+      c.shadowColor = `rgba(${AMBER},0.9)`; c.shadowBlur = 8;
+      route(rp.pos, `rgba(${AMBER},0.95)`, 1.6, []);
+    }
     c.shadowBlur = 0; c.setLineDash([]); c.lineJoin = "miter"; c.lineCap = "butt";
 
     bars.forEach((b, i) => {
@@ -572,7 +580,7 @@ function ringPanel(canvas) {
     c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 1; c.beginPath();
     for (let k = 0; k < N; k++) { const a = -Math.PI / 2 + k / N * Math.PI * 2; c.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); c.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); }
     c.stroke();
-    arc(R, clamp(rp.s / (N - 1), 0, 1), "rgba(255,255,255,0.35)", 1);
+    arc(R, clamp(rp.s / Math.max(1, N - 1), 0, 1), "rgba(255,255,255,0.35)", 1);
     arc(R - 8, (rp.i + 1) / N, "rgba(255,255,255,0.95)", 2);
     arc(R - 13, rp.traced / LINES_TOTAL, "rgba(255,255,255,0.5)", 2);
     arc(R - 18, rp.ck / Math.max(1, D.issue.checkpoints), `rgba(${AMBER},0.9)`, 2);
@@ -600,28 +608,6 @@ function issuesPanel(canvas) {
       c.fillStyle = `rgba(${colr},0.4)`; c.fillRect(x0, tight ? mid + 2 : y + 11, lenT * grow, 2);
       label(c, `${r.lines} LN · ${r.checkpoints} CK`, w - 4, tight ? mid : y + 16, "right", "rgba(255,255,255,0.55)");
     });
-  };
-}
-
-// D · issues opened per month, amber = share traced to a public checkpoint
-function histogramPanel(canvas) {
-  const begin = panel2d(canvas);
-  const months = D.months, max = Math.max(...months.map((m) => m.opened), 1);
-  $("hist-note").textContent = `${D.totals.issues} ISSUES · ${D.totals.traced} TRACED`;
-  return (t, rp) => {
-    const { ctx: c, w, h } = begin();
-    const x0 = 4, x1 = w - 6, base = h - 14, top = 10, bw = (x1 - x0) / months.length;
-    const curM = PATH[rp.i].date.slice(0, 7);
-    months.forEach((m, i) => {
-      const x = x0 + i * bw + 1, hot = m.m === curM;
-      const nAll = Math.round(m.opened / max * (base - top) / 2.5), nTr = Math.round(m.traced / max * (base - top) / 2.5);
-      for (let k = 0; k < nAll; k++) {
-        c.fillStyle = k < nTr ? (hot ? `rgb(${AMBER})` : `rgba(${AMBER},0.6)`) : hot ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.3)";
-        c.fillRect(x, base - 3 - k * 2.5, Math.max(1, bw - 2.5), 1.2);
-      }
-      label(c, m.m.slice(5), x + bw / 2 - 1, h - 5, "center", hot ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.35)");
-    });
-    c.fillStyle = "rgba(255,255,255,0.25)"; c.fillRect(x0, base, x1 - x0, 1);
   };
 }
 
@@ -665,29 +651,6 @@ function profilePanel(canvas) {
   };
 }
 
-// F · lines added (white, up) and deleted (amber, down) per month by the evidence commits
-function gradientPanel(canvas) {
-  const begin = panel2d(canvas);
-  const months = D.months, max = Math.max(...months.map((m) => Math.max(m.added, m.deleted)), 1);
-  return (t, rp) => {
-    const { ctx: c, w, h } = begin();
-    const x0 = 30, x1 = w - 6, mid = h / 2 + 4, amp = h / 2 - 14, bw = (x1 - x0) / months.length;
-    const curM = PATH[rp.i].date.slice(0, 7);
-    c.fillStyle = "rgba(255,255,255,0.25)"; c.fillRect(x0, mid, x1 - x0, 1);
-    label(c, `+${thousands(max)}`, x0 - 4, mid - amp, "right", "rgba(255,255,255,0.35)");
-    label(c, `−${thousands(max)}`, x0 - 4, mid + amp, "right", `rgba(${AMBER},0.6)`);
-    months.forEach((m, i) => {
-      const x = x0 + i * bw, hot = m.m === curM;
-      const up = Math.round(m.added / max * amp / 3), dn = Math.round(m.deleted / max * amp / 3);
-      c.fillStyle = hot ? "#fff" : "rgba(255,255,255,0.7)";
-      for (let k = 0; k < up; k++) c.fillRect(x, mid - 3 - k * 3, Math.max(1, bw - 0.6), 1.2);
-      c.fillStyle = hot ? `rgb(${AMBER})` : `rgba(${AMBER},0.55)`;
-      for (let k = 0; k < dn; k++) c.fillRect(x, mid + 3 + k * 3, Math.max(1, bw - 0.6), 1.2);
-      label(c, m.m.slice(5), x + bw / 2, h - 5, "center", hot ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.3)");
-    });
-  };
-}
-
 // H · cumulative commits (solid) and checkpoint-linked commits (amber dashed) since the repo's first commit
 function cumulativePanel(canvas) {
   const begin = panel2d(canvas);
@@ -710,15 +673,71 @@ function cumulativePanel(canvas) {
   };
 }
 
-// I · issue states: the top traced issues by outcome
-function resultsList() {
-  const pick = (f) => D.issues.filter(f).slice(0, 10);
-  const open = pick((i) => i.state === "open");
-  const closed = pick((i) => i.state !== "open");
-  const col = (title, list) => `<ol><h4>${title}</h4>${list.map((i) => `<li data-n="${i.number}"><span>${i.checkpoints}</span><span>#${i.number} ${i.title.slice(0, 44)}</span><span>${i.linked}</span></li>`).join("")}</ol>`;
-  $("results").innerHTML = col("OPEN · TRACED", open) + col("CLOSED · TRACED", closed);
-  const items = [...$("results").querySelectorAll("li")];
-  return (rp) => items.forEach((li) => li.classList.toggle("done", Number(li.dataset.n) === D.issue.number));
+// ---------- tables built from the run records ----------
+const money = (v) => (v == null ? "—" : `$${v.toFixed(v < 0.01 ? 4 : 3)}`);
+const secs = (v) => (v == null ? "—" : v >= 100 ? `${Math.round(v)}s` : `${v.toFixed(1)}s`);
+const ACTION = { fixed: "FIXED", not_fixed: "ASKED", fix_failed: "FAILED", needs_human: "NEEDS HUMAN", error: "ERROR" };
+
+// D · eval: Fence's verdict for closed issues against what happened to them, with the caveat next to the numbers
+function evalTable() {
+  const E = D.eval, cols = ["mistake", "decision", "no_record"], rows = ["completed", "not_planned", "duplicate"].filter((r) => E.table[r]);
+  $("eval-note").textContent = `${E.issues} CLOSED ISSUES · ${money(E.cost)}`;
+  $("eval").innerHTML =
+    `<table><thead><tr><th>CLOSED AS</th>${cols.map((c) => `<th class="num">${c.replace("_", " ").toUpperCase()}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map((r) => `<tr><td>${r.replace("_", " ").toUpperCase()}</td>${cols.map((c) => `<td class="num${(r === "completed" && c === "mistake") || (r === "not_planned" && c === "decision") ? " hit" : ""}">${E.table[r][c] || 0}</td>`).join("")}</tr>`).join("") +
+    `</tbody></table>` +
+    `<p class="caveat"><b>AGREES ${E.agreement.agree}/${E.agreement.compared}.</b> ALWAYS ANSWERING "MISTAKE" WOULD SCORE ${E.baseline.agree}/${E.baseline.compared}. ` +
+    `THIS DOES NOT SHOW THE VERDICT ADDS INFORMATION. "COMPLETED" ALSO COVERS FEATURE WORK; ONLY ${E.agreement.by_state_reason.not_planned.issues} NOT-PLANNED ISSUES. ONE RUN EACH.</p>` +
+    `<p class="caveat dim">OPEN SCAN · ${D.scan.issues} ISSUES · ${Object.entries(D.scan.verdicts).map(([k, v]) => `${k.replace("_", " ").toUpperCase()} ${v}`).join(" · ")}</p>`;
+}
+
+// F · the same issues through Fence and straight to the worker (baseline)
+function compareTable() {
+  const by = {};
+  for (const r of D.compare.rows) (by[r.issue] ||= {})[r.mode] = r;
+  const cell = (r) => (r ? `<td class="act ${r.action}">${ACTION[r.action] || "—"}${r.attempts > 1 ? ` ×${r.attempts}` : ""}</td><td class="num">${money(r.cost)}</td><td class="num">${secs(r.duration)}</td>` : `<td>—</td><td></td><td></td>`);
+  $("cmp-note").textContent = "ONE RUN PER CELL · SAME VERIFICATION";
+  $("compare").innerHTML =
+    `<table><thead><tr><th>ISSUE</th><th>VERDICT</th><th>FENCE</th><th class="num">COST</th><th class="num">TIME</th><th class="sep">BASELINE</th><th class="num">COST</th><th class="num">TIME</th></tr></thead><tbody>` +
+    Object.entries(by).map(([n, m]) => `<tr data-n="${n}" class="${Number(n) === D.issue.number ? "on" : ""}"><td>${D.replays[n] ? `<a href="?issue=${n}">#${n}</a>` : `#${n}`}</td><td class="v ${m.fence.verdict}">${(m.fence.verdict || "—").toUpperCase()}</td>${cell(m.fence)}${cell(m.baseline).replace("<td", '<td class="sep"').replace('class="sep" class="act', 'class="sep act')}</tr>`).join("") +
+    `</tbody></table><p class="caveat">ASKED = NO CODE CHANGED, QUESTION WRITTEN FOR A MAINTAINER. FIXED = THE WORKER'S TEST FAILS WITHOUT ITS FIX AND PASSES WITH IT, NOTHING REGRESSED; NO HUMAN REVIEWED THE FIX.</p>`;
+}
+
+// I · every issue Fence called "decision", with how that reads against what maintainers did
+function decisionsList() {
+  const tag = (r) => r.split(",")[0].toUpperCase();
+  const col = (title, list) => `<ol><h4>${title}</h4>${list.map((d) => `<li title="${escapeHtml(`${d.quote} — ${d.note}`).replace(/"/g, "&quot;")}" class="${/never|misread/.test(d.reading) ? "" : "done"}"><span>●</span><span>#${d.number} ${escapeHtml(d.title.slice(0, 40))}</span><span>${tag(d.reading)}</span></li>`).join("")}</ol>`;
+  const closed = D.decisions.filter((d) => d.group.startsWith("closed")), open = D.decisions.filter((d) => !d.group.startsWith("closed"));
+  const real = D.decisions.filter((d) => !/never|misread/.test(d.reading)).length;
+  $("dec-note").textContent = `${real} OF ${D.decisions.length} A REAL CHOICE`;
+  $("results").innerHTML = col(`CLOSED · ${closed.length}`, closed) + col(`OPEN · ${open.length}`, open);
+}
+
+// outcome box: what Fence did with this issue, always on screen
+function outcomeBox() {
+  const el = $("outcome");
+  if (!RUN) { el.innerHTML = `<small>NO FIX RUN RECORDED FOR THIS ISSUE</small>`; return; }
+  const head = `<div class="o-head ${RUN.action}"><b>${(RUN.verdict || "—").toUpperCase()}</b><span>→ ${RUN.action === "fixed" ? "FENCE FIXED IT" : RUN.action === "not_fixed" ? "FENCE STOPPED AND ASKED" : (ACTION[RUN.action] || "")}</span><em>CONF ${RUN.confidence?.toFixed(2) ?? "—"}</em></div>`;
+  let body;
+  if (RUN.action === "fixed") {
+    body = `<p>${escapeHtml(RUN.rationale)}</p>` +
+      `<dl><dt>WORKER</dt><dd>${RUN.files.length} FILES · ${RUN.attempts} ATTEMPT${RUN.attempts > 1 ? "S" : ""}</dd>` +
+      `<dt>VERIFIED BY FENCE</dt><dd>${escapeHtml(RUN.verification.toUpperCase())}</dd>` +
+      `<dt>NEW TEST</dt><dd>${escapeHtml(RUN.tests[0] || "—")}</dd>` +
+      `<dt>COMMIT</dt><dd>${RUN.commit} · ${escapeHtml(RUN.branch || "")} · WORK COPY ONLY</dd></dl>`;
+  } else {
+    const q = RUN.quotes[0];
+    body = (q ? `<blockquote>${escapeHtml(q.quote)}</blockquote><small class="src">${q.source.replace("_", " ").toUpperCase()} · COMMIT ${q.commit} · CHECKPOINT ${q.checkpoint}</small>` : `<p>${escapeHtml(RUN.rationale)}</p>`) +
+      `<dl><dt>FENCE</dt><dd>CHANGED NO CODE · WROTE ${escapeHtml((RUN.question || "A QUESTION").toUpperCase())}</dd>` +
+      (BASE ? `<dt>BASELINE</dt><dd class="warn">NOT ASKED · ${ACTION[BASE.action] || ""} · CHANGED ${BASE.files.length} FILES</dd>` : "") + `</dl>`;
+  }
+  el.innerHTML = head + body + `<div class="o-foot"><span>${money(RUN.cost)} · ${secs(RUN.duration)}</span><span>${BASE ? `BASELINE ${money(BASE.cost)} · ${secs(BASE.duration)}` : ""}</span><span>TRACE ${(RUN.trace || "").slice(0, 8)}</span></div>`;
+}
+
+function issueSelector() {
+  const sel = $("issue-select");
+  sel.innerHTML = Object.values(D.replays).map((r) => `<option value="${r.issue.number}"${r.issue.number === D.issue.number ? " selected" : ""}>#${r.issue.number} · ${(r.fence?.verdict || "—").toUpperCase()} → ${ACTION[r.fence?.action] || "—"}</option>`).join("");
+  sel.addEventListener("change", () => { QUERY.set("issue", sel.value); location.search = QUERY.toString(); });
 }
 
 // ---------- chrome: ticker, legend, footer, clock, grain, text scramble ----------
@@ -763,13 +782,14 @@ function chrome() {
 
 // ---------- static DOM: evidence table, stage strip ----------
 $("replay-note").textContent = `${N} STEPS · ${STEP_SECONDS} S`;
-$("chain-note").textContent = `${D.totals.checkpointCommits} OF ${N} WITH CHECKPOINT`;
+$("chain-note").textContent = `${D.issue.checkpoints} OF ${N} WITH CHECKPOINT`;
 $("globe-note").textContent = `${D.agents.length} AGENTS`;
 $("view-title").textContent = `EVIDENCE TRAIL · ISSUE #${D.issue.number}`;
 $("view-note").textContent = D.issue.title.toUpperCase().slice(0, 64);
 $("checkpoints").innerHTML = PATH.map((p, i) => `<tr><td>E${i + 1}</td><td class="name">${p.subject}</td><td class="num">${p.date.slice(5)}</td><td class="num">${p.lines}</td><td class="num ck">${p.checkpoint ? "●" : "–"}</td></tr>`).join("");
 const tableRows = [...$("checkpoints").rows];
-const STAGES = [["ISSUE", `#${D.issue.number}`, "st-issue"], ["LOCATE", `${D.spans.length} SPANS`, "st-locate"], ["BLAME", `${LINES_TOTAL} LN`, "st-blame"], ["CHECKPOINTS", `0/${N}`, "st-ck"], ["INTENT", "0 LN", "st-intent"], ["VERDICT", "—", "st-verdict"]];
+const STAGES = [["ISSUE", `#${D.issue.number}`, "st-issue"], ["LOCATE", `${D.spans.length} SPANS`, "st-locate"], ["BLAME", `${LINES_TOTAL} LN`, "st-blame"], ["CHECKPOINTS", `0/${N}`, "st-ck"], ["INTENT", "0 LN", "st-intent"], ["VERDICT", "—", "st-verdict"], ["ACTION", "—", "st-action"]];
+const VERDICT_TEXT = RUN?.verdict ? RUN.verdict.toUpperCase() : "NOT RUN", ACTION_TEXT = RUN ? (RUN.action === "not_fixed" ? "ASKED A HUMAN" : ACTION[RUN.action] || "—") : "—";
 $("stages").innerHTML = STAGES.map(([k, v, id]) => `<div class="stage" id="${id}"><small>${k}</small><b>${v}</b></div>`).join("") + `<i class="bar" id="st-bar"></i>`;
 const escapeHtml = (t) => t.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
 
@@ -808,7 +828,14 @@ function syncDom(t, rp) {
     }
     setCard(PATH[rp.i], rp.i);
   }
-  if (rp.done && !lastDone) { lastDone = true; logLine(`END OF RECORD · ${rp.traced}/${LINES_TOTAL} LN TRACED · VERDICT PENDING`); }
+  if (rp.done && !lastDone) {
+    lastDone = true;
+    logLine(`END OF RECORD · ${rp.traced}/${LINES_TOTAL} LN TRACED`);
+    if (RUN) {
+      logLine(`VERDICT ${VERDICT_TEXT} · CONF ${RUN.confidence?.toFixed(2)} · ${money(RUN.cost)}`, true);
+      logLine(RUN.action === "fixed" ? `WORKER FIXED · FENCE VERIFIED · ${RUN.tests.length} TEST(S) NEWLY PASSING · COMMIT ${RUN.commit}` : `NO CODE CHANGED · QUESTION WRITTEN · ${RUN.question || ""}`, true);
+    }
+  }
   if (t - lastKpi > 0.6) {
     lastKpi = t;
     const p = PATH[rp.i], next = PATH[rp.i + 1];
@@ -823,17 +850,19 @@ function syncDom(t, rp) {
     $("st-intent").querySelector("b").textContent = `${thousands(rp.traced)} LN`;
     $("st-ck").classList.toggle("live", !rp.done);
     $("st-intent").classList.toggle("live", !rp.done);
-    $("st-verdict").querySelector("b").textContent = rp.done ? "PENDING" : "—";
+    $("st-verdict").querySelector("b").textContent = rp.done ? VERDICT_TEXT : "—";
     $("st-verdict").classList.toggle("on", rp.done);
-    $("st-bar").style.width = `${clamp(rp.s / (N - 1), 0, 1) * 100}%`;
+    $("st-action").querySelector("b").textContent = rp.done ? ACTION_TEXT : "—";
+    $("st-action").classList.toggle("on", rp.done);
+    $("st-bar").style.width = `${clamp(rp.s / Math.max(1, N - 1), 0, 1) * 100}%`;
   }
 }
 
 // ---------- boot ----------
 const scene = scene3d($("scene"), $("scene-hud"));
 const sphere = globe($("globe"), $("globe-hud"), $("globe-readout"));
-const panels = [ringPanel($("ring")), issuesPanel($("formats")), histogramPanel($("finish")), profilePanel($("profile")), gradientPanel($("gradient")), cumulativePanel($("cumulative"))];
-const markResults = resultsList();
+const panels = [ringPanel($("ring")), issuesPanel($("formats")), profilePanel($("profile")), cumulativePanel($("cumulative"))];
+evalTable(); compareTable(); decisionsList(); outcomeBox(); issueSelector();
 const tickChrome = chrome();
 logLine(`ISSUE #${D.issue.number} OPENED · ${D.issue.created}`);
 
@@ -847,7 +876,6 @@ function loop(now) {
   sphere.frame(t);
   for (const p of panels) p(t, rp);
   syncDom(t, rp);
-  markResults(rp);
   tickChrome(n++);
   requestAnimationFrame(loop);
 }
