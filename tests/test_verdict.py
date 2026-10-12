@@ -10,7 +10,7 @@ EX = [
     Excerpt("transcript", "c1", "k1", "[user] keep it simple"),
 ]
 ISSUE = {"number": 1, "title": "t", "body": "b"}
-RESOLVED = {"spans": 1, "span_list": [["a.go", 1, 2, "func:Thing"]], "lines": 2, "lines_linked": 2}
+RESOLVED = {"located_by": "named", "spans": 1, "span_list": [["a.go", 1, 2, "func:Thing"]], "lines": 2, "lines_linked": 2}
 
 
 def reply(**kw):

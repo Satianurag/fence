@@ -63,8 +63,8 @@ def focus_terms(span_list: list[list[Any]]) -> list[str]:
     """Symbols and file names the issue points at; used to pick the relevant transcript turns."""
     terms: list[str] = []
     for f, _a, _b, how in span_list:
-        if how.startswith("func:"):
-            terms.append(how[5:])
+        if how.startswith(("func:", "search:")):
+            terms.append(how.split(":", 1)[1])
         terms.append(f.rsplit("/", 1)[-1])
     return list(dict.fromkeys(terms))
 

@@ -1,6 +1,7 @@
 """Fence resolver: issue -> code it names -> blame -> Entire checkpoint -> intent evidence.
 Reads only git data (no Entire login, no `entire why`).
-usage: python -m fence.resolve <repo> <issues.json> <out.json> [--at-created] [--only=N,N]"""
+When an issue names nothing the resolver can locate, `entire graph search` on the issue title is the fallback.
+usage: python -m fence.resolve <repo> <issues.json> <out.json> [--at-created] [--search] [--only=N,N]"""
 import collections
 import json
 import re
@@ -10,7 +11,9 @@ from functools import cached_property
 from typing import Any
 
 FileRef = tuple[str, int | None, int | None]  # path, first line, last line
-Span = tuple[str, int, int, str]  # file, first line, last line, how it was found
+Span = tuple[str, int, int, str]  # file, first line, last line, how it was found: file:line, func:<sym> or search:<sym>
+SEARCH_TOP_K = 5
+SEARCH_TIMEOUT_S = 300
 
 STOP = set("""New Error String Close Open Read Write Run Get Set Load Save Config Client Context Status Start Stop
 Init Parse Format Name Type Kind Event Path Hook Hooks Session Sessions Check Fix Apply Is Has Do Len Add Remove main""".split())
@@ -126,6 +129,23 @@ class Repo:
         subj, date, body = (self.git("log", "-1", "--format=%s%x00%as%x00%b", commit).split("\x00") + ["", "", ""])[:3]
         return subj, date, strip_trailers(body)
 
+    def search(self, query: str, top_k: int = SEARCH_TOP_K) -> list[dict[str, Any]]:
+        """Functions `entire graph search` ranks for a plain-language query, over the committed tree (--head),
+        so uncommitted changes in the clone are ignored. Raises RuntimeError if the search cannot run."""
+        cmd = ["entire", "graph", "search", "--query", query, "--repo", self.path, "--head", "--format", "json", "--top-k", str(top_k)]
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=SEARCH_TIMEOUT_S)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise RuntimeError(f"entire graph search did not run: {type(e).__name__}") from None
+        if p.returncode != 0:
+            raise RuntimeError(f"entire graph search exited with status {p.returncode}")
+        try:
+            results = json.loads(p.stdout)["results"]
+        except (ValueError, KeyError, TypeError):
+            raise RuntimeError("entire graph search output was not the expected JSON") from None
+        return [h for h in results if isinstance(h, dict) and h.get("kind") == "function" and h.get("symbol_name")
+                and not str(h.get("file_path", "")).endswith("_test.go") and not h.get("section")][:top_k]
+
     def evidence(self, commit: str, ck: str) -> dict[str, Any]:
         k = (commit, ck)
         if k in self._ev:
@@ -143,8 +163,24 @@ class Repo:
         return self._ev[k]
 
 
-def resolve_issue(repo: Repo, issue: dict[str, Any], at_created: bool = False) -> dict[str, Any]:
-    """One issue -> spans it names -> blamed commits -> checkpoint-linked evidence rows."""
+def searched_spans(repo: Repo, rev: str, title: str) -> list[Span]:
+    """Spans for the functions the search returns. The search reads HEAD, so each function is looked up
+    again at `rev`; a function that does not exist there is dropped."""
+    spans: list[Span] = []
+    for h in repo.search(title):
+        sym = h["symbol_name"]
+        if rev == "HEAD":
+            found = [(h["file_path"], int(h.get("symbol_start_line") or h["start_line"]), int(h.get("symbol_end_line") or h["end_line"]))]
+        else:
+            at_rev = repo.func_spans(rev, sym)
+            found = [x for x in at_rev if x[0] == h["file_path"]] or at_rev[:1]
+        spans += [(f, a, b, "search:" + sym) for f, a, b in found]
+    return list(dict.fromkeys(spans))
+
+
+def resolve_issue(repo: Repo, issue: dict[str, Any], at_created: bool = False, search: bool = False) -> dict[str, Any]:
+    """One issue -> spans it names -> blamed commits -> checkpoint-linked evidence rows.
+    With search=True, an issue that yields no named span falls back to a title search; named spans always come first."""
     rev = repo.rev_at(issue["created_at"]) if at_created else "HEAD"
     files, syms = refs_from((issue.get("title") or "") + "\n" + (issue.get("body") or ""))
     spans: list[Span] = []
@@ -155,6 +191,15 @@ def resolve_issue(repo: Repo, issue: dict[str, Any], at_created: bool = False) -
     for s in syms:
         for f, a, b in repo.func_spans(rev, s):
             spans.append((f, a, b, "func:" + s))
+    located_by = "named" if spans else None
+    search_error = None
+    if search and not spans:
+        try:
+            spans += searched_spans(repo, rev, issue.get("title") or "")
+        except RuntimeError as e:
+            search_error = str(e)
+        if spans:
+            located_by = "search"
     lines = 0
     linked = 0
     pairs: collections.Counter[tuple[str, str]] = collections.Counter()
@@ -167,9 +212,12 @@ def resolve_issue(repo: Repo, issue: dict[str, Any], at_created: bool = False) -
                 for i in ids:
                     pairs[(c, i)] += 1
     ev = [dict(repo.evidence(c, i), lines=n) for (c, i), n in pairs.most_common(8)]
-    return dict(number=issue["number"], title=issue["title"], state=issue["state"], state_reason=issue.get("state_reason"), labels=issue["labels"], rev=rev[:10],
-                files_named=len(files), symbols_named=len(syms), spans=len(spans), span_list=[list(x) for x in spans], lines=lines, lines_linked=linked,
-                checkpoints=len({i for _, i in pairs}), evidence=ev)
+    out = dict(number=issue["number"], title=issue["title"], state=issue["state"], state_reason=issue.get("state_reason"), labels=issue["labels"], rev=rev[:10],
+               files_named=len(files), symbols_named=len(syms), spans=len(spans), span_list=[list(x) for x in spans], lines=lines, lines_linked=linked,
+               checkpoints=len({i for _, i in pairs}), evidence=ev)
+    if search:  # only present when the fallback is enabled, so plain runs keep the stored output shape
+        out.update(located_by=located_by, search_error=search_error)
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -186,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = Repo(repo_path)
     with open(issues_path) as fh:
         issues = json.load(fh)
-    results = [resolve_issue(repo, it, "--at-created" in argv) for it in issues if not only or it["number"] in only]
+    results = [resolve_issue(repo, it, "--at-created" in argv, "--search" in argv) for it in issues if not only or it["number"] in only]
     with open(out_path, "w") as fh:
         json.dump(results, fh, indent=1)
     sp = [r for r in results if r["spans"]]

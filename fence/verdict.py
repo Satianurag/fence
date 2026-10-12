@@ -112,9 +112,13 @@ def run_claude(prompt: str, model: str) -> LLMCall:
 
 def build_prompt(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list[Excerpt]) -> str:
     spans = "\n".join(f"- {f}:{a}-{b} ({how})" for f, a, b, how in resolved["span_list"])
+    by_search = resolved.get("located_by") == "search"
+    heading = ("The issue names no file or symbol. These functions were found by searching the code for the issue title, so they may not be "
+               "the code the issue is about; if the evidence does not concern the reported behaviour, answer no_record"
+               if by_search else "Code the issue points at")
     return (
         f"<issue number=\"{issue['number']}\">\n<title>{issue.get('title') or ''}</title>\n{(issue.get('body') or '')[:6000]}\n</issue>\n\n"
-        f"Code the issue points at ({resolved['lines_linked']} of {resolved['lines']} blamed lines trace to a recorded checkpoint):\n{spans}\n\n"
+        f"{heading} ({resolved['lines_linked']} of {resolved['lines']} blamed lines trace to a recorded checkpoint):\n{spans}\n\n"
         f"Evidence, most-blamed commit first:\n\n{render(excerpts)}\n\n"
         "Classify this issue. Reply with the JSON object only."
     )
@@ -165,7 +169,7 @@ def classify(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list[Exc
              runner: Runner = run_claude) -> tuple[Verdict, list[LLMCall]]:
     """Verdict plus every LLM call made. With no evidence the answer is no_record and no call is made."""
     if not resolved["spans"]:
-        return Verdict("no_record", 1.0, "The issue names no file or symbol the resolver could locate, so there are no lines to trace to a checkpoint."), []
+        return Verdict("no_record", 1.0, "No code was located for this issue, by name or by search, so there are no lines to trace to a checkpoint."), []
     if not excerpts:
         return Verdict("no_record", 1.0, f"None of the {resolved['lines']} blamed lines trace to a recorded checkpoint."), []
     prompt = build_prompt(issue, resolved, excerpts)
