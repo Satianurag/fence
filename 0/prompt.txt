@@ -1,0 +1,7 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Thanks, steps 1 and 2 look good. One addition to the locate step, prompted by your finding (a) on #1924 and #784:
+
+When an issue names no Go file or symbol, do not stop at zero spans. Add a fallback in resolve_issue: run `entire graph search --query "<issue title>" --repo "$FENCE_TARGET" --head --format json --top-k 5` (the committed tree, so the uncommitted demo change in that clone is ignored) and use the returned functions as spans, each marked located_by="search" so the verdict step and the run record can tell searched spans from named ones. Keep named refs first when both exist. Cover it with a test that stubs the subprocess call.
+
+Then continue with verdict.py, trace.py, cli.py, tests and the three runs as planned.
+</cross-session-message>

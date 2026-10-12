@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4QJXKB941YFNS8DJ8232S5V",
+  "session_id": "b621b9ad-934b-4824-8368-b2b2ece057b4",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-12T08:16:01.736315Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "fence/evidence.py",
+    "fence/resolve.py",
+    "fence/verdict.py",
+    "tests/test_search_fallback.py",
+    "tests/test_verdict.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "fc6ca93a5de0",
+  "checkpoint_transcript_start": 222,
+  "transcript_lines_at_start": 222,
+  "compact_transcript_start": 38,
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 19698,
+    "cache_read_tokens": 1176197,
+    "output_tokens": 12554,
+    "api_call_count": 8
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-12T08:16:01.704635Z",
+    "agent_lines": 151,
+    "agent_removed": 13,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 151,
+    "total_lines_changed": 164,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
