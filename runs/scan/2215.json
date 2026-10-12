@@ -1,0 +1,190 @@
+{
+ "issue": 2215,
+ "title": "Claude Code `SubagentStop` is dropped: Entire correlates on `tool_use_id`, which the hook does not send",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The evidence treats keying on `tool_use_id` as a defect: the commit message says SubagentStop \"carries agent_id but never tool_use_id, so even a recorded marker was never found\", and it adds lookup by agent ID. Nothing shows that dropping subagents Entire never saw launch was chosen. The only deliberate part is demoting a repeated stop for an already-completed record to debug, which covers just one of the issue's symptoms.",
+  "quotes": [
+   {
+    "evidence_id": 3,
+    "source": "commit_message",
+    "commit": "b6fe9c90df",
+    "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+    "quote": "Its SubagentStop also carries agent_id but never tool_use_id, so even a recorded marker was never found."
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 3,
+  "symbols_named": 15,
+  "spans": 4,
+  "span_list": [
+   [
+    "cmd/entire/cli/lifecycle.go",
+    1721,
+    1869,
+    "func:handleSubagentStopFinal"
+   ],
+   [
+    "cmd/entire/cli/session/state.go",
+    691,
+    698,
+    "func:FindTaskRecord"
+   ],
+   [
+    "cmd/entire/cli/settings/settings.go",
+    506,
+    508,
+    "func:IsZero"
+   ],
+   [
+    "cmd/entire/cli/settings/settings.go",
+    548,
+    550,
+    "func:IsZero"
+   ]
+  ],
+  "lines": 163,
+  "lines_linked": 47,
+  "checkpoints": 9
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "fc44f33fa8",
+   "checkpoint": "01M2458H6H6F8Y4GVHCT2DFCY2",
+   "text": "feat(copilot-cli): track subagent tasks"
+  },
+  {
+   "source": "prompt",
+   "commit": "fc44f33fa8",
+   "checkpoint": "01M2458H6H6F8Y4GVHCT2DFCY2",
+   "text": "can you look at this trail for codex subagent tracking, https://entire.io/gh/entireio/cli/trails/1197/codex-subagent-tracking/changes refer to the other prs/ trails in the cli that were already merged for subagent support for more context. the goal is for all agents to have full subagnet support.\n\nmaybe check on the branch associated with the trail to see if you can find the past session i had working on this, i was smoke testing this trail last and now i cnat find the session\n\nlogin to entire if you need first\n\n---\n\ncan you fix the findings and then re test the smoke test, basically we need to test with real codex session, creating checkpoint with subagent, so we can test the implementaiton just as end user not just wiht e2e tests\n\n---\n\nyes\n\n---\n\nyes\n\n---\n\ncan you give me full spec\n\n---\n\n"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "Capture Claude Code background subagents into checkpoints\n\nClaude Code runs most Agent calls in the background without the model passing run_in_background (or passes it as the string \"true\"), so the launch was classified as foreground, completed empty, and dropped. Its SubagentStop also carries agent_id but never tool_use_id, so even a recorded marker was never found.\n\nClassify the launch from tool_response.status (\"async_launched\" / \"completed\"), which Claude Code reports authoritatively, falling back to run_in_background (boolean or boolean string). At SubagentStop, find the launch record by agent ID (preferring a live record, for resumed subagents) and adopt its tool_use_id. The integration harness now sends the payload shapes Claude Code 2.1.288 actually sends."
+  },
+  {
+   "source": "transcript",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "[assistant] _background` from `tool_input`. If it's absent or is the string `\"true\"`, the launch is treated as foreground. The launch is then finished immediately by `completeSubagentTaskRecord`, which skips at `lifecycle.go:1972` because nothing has changed yet. That matches the report.\n\n**There's a better signal than `tool_input`.** The Claude transcripts for both runs record the async launch result as:\n```\n{\"isAsync\":true,\"status\":\"async_launched\",\"agentId\":\"aa6579c96e11a281b\",...}\n```\nSo suggestion 2 is the right one. Check `tool_response.isAsync` (or `status == \"async_launched\"`), not the text \"Async\n[assistant]  `tool_use_id`.\n- **`TestIsBackgroundLaunch`** (`hooks_test.go`): `\"true\"` and `\"false\"` as strings, an unrecognized value, and the launch mode Claude reports taking priority in both directions.\n- **`FindTaskRecordByAgentID`** (`session/state_test.go`): an empty ID never matches.\n- **Lifecycle** (`lifecycle_test.go`):\n  - A launch Claude reports as background, with no `run_in_background` in its input, records an in-flight marker.\n  - A launch Claude reports as foreground completes immediately, even with `run_in_background: true`.\n  - A SubagentStop without `tool_use_id` completes the marker it\n[assistant] ` checks that the stop completes the resumed run's record and leaves the first run's record untouched. Before the fix, the stop matched the old record and the new one was never completed.\n- **Fix:** `FindTaskRecordByAgentID` (`session/state.go`) now prefers a record that is still in flight. It returns a finished record only when no in-flight one exists. The doc comment explains why.\n- **Caveat:** I didn't confirm that Claude really reuses the agent ID when a subagent is resumed. The change is correct either way.\n\n**P2: the raw `run_in_background` value was logged as-is.**\n- **Test:** `TestIsBa"
+  },
+  {
+   "source": "prompt",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "can you review the changes\n\n---\n\ncan you review again"
+  },
+  {
+   "source": "commit_message",
+   "commit": "878027a2f4",
+   "checkpoint": "01M0G6AH96R9N6BB7GK0VKB90B",
+   "text": "fix(lifecycle): log the swept-state case in the subagent-stop condense decision\n\nA nil reload shared the read-error branch's silent fallback, so \"the session\nwas swept mid-capture\" and \"the state file could not be read\" were\nindistinguishable in the logs. They have different consequences: the sweeper\ncondenses as part of ending the session, so the swept case has nothing left to\ncondense here, while a read error is a genuine degradation."
+  },
+  {
+   "source": "transcript",
+   "commit": "878027a2f4",
+   "checkpoint": "01M0G6AH96R9N6BB7GK0VKB90B",
+   "text": "[user] sk 1 complete and committed on `feat/subagent-stop-capture` (branch confirmed, started at HEAD `2a79b3760`, now `5cdde2e3a`). Did not touch Tasks 2–6.\n\n**What renamed/added** (`cmd/entire/cli/session/state.go`):\n- `InFlightTask` → `TaskRecord`; `State.InFlightTasks` → `State.TaskRecords`; json key `in_flight_tasks` → `task_records`.\n- Added fields: `DeclaredTranscriptPath string`, `Files []string`, `TokenUsage *agent.TokenUsage` (matches the type already used by `State.TokenUsage`/`CheckpointTokenUsage`), `CompletedAt time.Time` (zero = in-flight).\n- Methods renamed: `AddInFlightTask`→`AddTask\n[user] esult>## Verdict: Spec compliant\n\nCommit `5cdde2e3a` on `feat/subagent-stop-capture` matches Task 1 of the plan precisely. Verified independently:\n\n**1. Rename + new fields** (`cmd/entire/cli/session/state.go`) — `InFlightTask`→`TaskRecord`, `InFlightTasks`→`TaskRecords` (json `task_records`), `Add/Remove/FindInFlightTask`→`Add/Remove/FindTaskRecord`, plus `DeclaredTranscriptPath`, `Files`, `TokenUsage *agent.TokenUsage` (correctly reuses the existing alias `agent.TokenUsage = types.TokenUsage`, matching `State.TokenUsage`/`CheckpointTokenUsage`), `CompletedAt`. `LastCapturedTranscriptBytes`/`\n[user] d/entire/cli/integration_test/subagent_checkpoints_test.go:393-403`) is exactly the right naming.\n- **Doc comments were rewritten, not just renamed.** `TaskRecord`'s type doc (`cmd/entire/cli/session/state.go:385-403`) explicitly says a completed record is NOT deleted and must persist for condensation-time materialization, and points at the plan. The claim-loss semantics were coherently updated at all three sites (`claimTaskRecord`, `handleSubagentStopFinal`, `captureSubagentTaskStep`): \"loses the marker\" became \"leaves the record completed with no additional fields populated\" — accurate for t"
+  },
+  {
+   "source": "prompt",
+   "commit": "878027a2f4",
+   "checkpoint": "01M0G6AH96R9N6BB7GK0VKB90B",
+   "text": "<task-notification>\n<task-id>a202218a32a941448</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-peytonmontei-Documents-entire-devenv-entireio-cli--worktrees-claude-hooks/0153df40-cf3f-429a-bd42-56a3f8dc0a0b/tasks/a202218a32a941448.output</output-file>\n<status>completed</status>\n<summary>Agent \"Resolve main merge conflicts\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>**DONE** — merge committed as `bfe53dc12` and pushed to `feat/subagent-stop-capture`. Tree clean.\n\n## How the 4 conflicts resolved\n\n**`agent/event.go`** — Unified the duplicated field onto main's `"
+  },
+  {
+   "source": "commit_message",
+   "commit": "ea97c16a58",
+   "checkpoint": "01M4C2KZRMV9D6VEHY8TEVBKHP",
+   "text": "lifecycle: log a re-woken subagent's repeated stop at debug\n\nA background subagent stops again each time a child it launched wakes\nit (a forked skill fanning out, or an Agent call with background\nchildren). Its later SubagentStops find the record its first stop\ncompleted, by agent ID, and were logged as a missing in-flight marker\nwarning. That is expected; only a stop that named its tool call and\nstill found no live record is worth a warning."
+  },
+  {
+   "source": "transcript",
+   "commit": "ea97c16a58",
+   "checkpoint": "01M4C2KZRMV9D6VEHY8TEVBKHP",
+   "text": "[user] ttribution, and the same fix covers it.\n    - Add this as a test scenario. It is also what D's `background-resume` would exercise.\n  - **Pass the bound on the Event instead of loading state again.** `handleSubagentStopFinal` already holds `state` (it calls `FindTaskRecord`), and `completeLiveTaskRecords` iterates state.\n    - Compute `NextTaskStartOnAgent` there and put it on the event, e.g. `SubagentScopeUntil`.\n    - Then `fetchSubagentTranscriptForCapture` passes it through. That avoids a second state read and possible lock or ordering issues.\n  - **Cut at the child's user message, not at B\n[user] ]→pre-task, PostToolUse[Agent]→post-task, and PostToolUse[TaskCreate|TaskUpdate]→post-todo.\n  - The health check at hooks.go:514-520 only looks at these same hooks.\n  - `HookNames()` is at claudecode/lifecycle.go:61-72. The `ParseHookEvent` switch at lifecycle.go:77-101 maps:\n    - pre-task→parseSubagentStart (:94)\n    - post-task→parseSubagentEnd (:96)\n    - subagent-stop→parseSubagentStop (:98)\n  - **Claude Code's `SubagentStart` hook is not registered anywhere.** Nothing in the claudecode package mentions it. `agent.SubagentStart` (agent/event.go:36) is only ever produced by PreToolUse[Agen\n[user]  SubagentType:\"workflow-subagent\"}` instead. That reaches `recordInFlightTaskLaunch`.\n     - Setting `SubagentType` skips the `ToolInput` parse. Nothing else is required; IDs are validated centrally (lifecycle.go:73-82).\n     - **But** `recordInFlightTaskLaunch` uses `AddTaskRecord`, which *replaces* a same-key record. A duplicate or late SubagentStart after completion would reset a completed record to live and drop its files and tokens. Use `EnsureTaskRecord` for this path, or put an `EnsureTaskRecord` variant behind a flag.\n  \n  4. **Filter on agent_type, not \"no existing record for this age"
+  },
+  {
+   "source": "prompt",
+   "commit": "ea97c16a58",
+   "checkpoint": "01M4C2KZRMV9D6VEHY8TEVBKHP",
+   "text": "<task-notification>\n<task-id>bacq4fppo</task-id>\n<tool-use-id>toolu_01T33avqPHSx6WcFDJFG5my7</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-peytonmontei-dev-entire-devenv-entireio-cli--worktrees-subagents/28d8a5ed-f4cd-41f5-be86-6cbd4d1a1a0f/tasks/bacq4fppo.output</output-file>\n<status>completed</status>\n<summary>Background command \"Wait for CI and trail review\" completed (exit code 0)</summary>\n</task-notification>\n\n---\n\nwhat is next on the subagnets list\n\n---\n\ndo all other subagent integrations have the subagent tokens? i thought the tokens was part of the parent session, but if not, then we should address this\n\n---\n\nyes, but is reusing codex's the right way because since opencode is agent harness as you know, the token cost may differ per agent\n\n---\n\none thing im confused abo"
+  },
+  {
+   "source": "commit_message",
+   "commit": "8bd683ea64",
+   "checkpoint": "01M4BSMV873ACG3DA56SK9RXQA",
+   "text": "claude-code: verify a Workflow agent's transcript and key each run's stop\n\nA Workflow agent's SubagentStop transcript path came straight from the hook\npayload, and the capture read whatever existing file it named into the\ncheckpoint. It is now used only when it is exactly\n<session>/subagents/workflows/<runId>/agent-<id>.jsonl for this session and\nagent inside the parent's session directory, with no link below it;\nanything else is dropped and the layout lookup applies.\n\nThat file's run is passed on as SubagentRunID. A resumed run reuses its\nagents' IDs, so its launch found the earlier run's completed record (not\nyet condensed) and added none, and its stop was then skipped as a\nduplicate, losing the run's files, transcript and tokens. The stop now\ncompletes a record of its own unless one already holds the same run's\ntranscript, whichever order the runs' stops arrive in."
+  },
+  {
+   "source": "transcript",
+   "commit": "8bd683ea64",
+   "checkpoint": "01M4BSMV873ACG3DA56SK9RXQA",
+   "text": "[user] can you find the other session in this worktree where we were working and tell me what other gaps we needed to address\n[assistant] I stopped the #2674 fix without changing anything. Another Claude session, `f1fbccf6`, started editing that worktree just as my agent began. It's working on the same findings: the attach overwrite and the dropped subagent tokens.\n\nMy agent confirmed finding 1 before it stopped. Attach takes the session's checkpoint from 100 output tokens down to 7, and main doesn't have this bug. It didn't check findings 2–5.\n\nMy suggestion is to let that session finish #2674, then rerun the Codex review on its new head to confirm all five findings are fixed. #2670 and #2687 are still in progress.\n\nI'm still w"
+  },
+  {
+   "source": "commit_message",
+   "commit": "32124404b1",
+   "checkpoint": "7b7c2be8a262",
+   "text": "Phase 2"
+  },
+  {
+   "source": "transcript",
+   "commit": "32124404b1",
+   "checkpoint": "7b7c2be8a262",
+   "text": "[assistant] Okay, I found more. Let me list them all:\n\n1. `session/state.go:54` - `LastCheckpointID string` in some state struct\n2. `strategy/manual_commit_types.go:28` - `LastCheckpointID string` in SessionState\n3. `strategy/manual_commit_types.go:43` - `CheckpointID string` in CheckpointInfo\n4. `strategy/manual_commit_types.go:57` - `CheckpointID string` in CondenseResult (no json tag)\n5. `checkpoint/id/id.go:15` - This is the type definition itself, ignore\n6. `checkpoint/checkpoint.go:177` - `CheckpointID string` in some struct\n7. `checkpoint/checkpoint.go:286` - `CheckpointID string` in some struct\n8.\n[assistant] Now I have a complete list of structs to update:\n\n1. `session/state.go` - `State.LastCheckpointID string`\n2. `strategy/manual_commit_types.go` - `SessionState.LastCheckpointID string`\n3. `strategy/manual_commit_types.go` - `CheckpointInfo.CheckpointID string` (json)\n4. `strategy/manual_commit_types.go` - `CondenseResult.CheckpointID string` (no json)\n5. `checkpoint/checkpoint.go` - `WriteCommittedOptions.CheckpointID string` (no json)\n6. `checkpoint/checkpoint.go` - `CommittedInfo.CheckpointID string` (no json)\n7. `checkpoint/checkpoint.go` - `CommittedMetadata.CheckpointID string` (json)\n\nLet\n[assistant] Now let me update session/state.go.\n[assistant] Let me read state.go to see the imports and context.\n[assistant] Let me update the imports and the field in state.go."
+  },
+  {
+   "source": "prompt",
+   "commit": "32124404b1",
+   "checkpoint": "7b7c2be8a262",
+   "text": "can you tell me again, what's the reason for this message? (the session ids are not from my machine but from a colleague)\n\nOperation stopped by hook: Another session is active: \"let's start theming then and also put the       \n  others in the i...\"                                                                                    \n                                                                                                         \n  You can continue here, but checkpoints from both sessions will be interleaved.                         \n                                                                                                         \n  To resume the other session instead, exit Claude and run: claude -r                                    \n  e2f39195-8421-468f-a161-0e8a86ec3767     "
+  },
+  {
+   "source": "commit_message",
+   "commit": "b1dedf175b",
+   "checkpoint": "01M26CWTZVWQ9B880TRM84FTV5",
+   "text": "fix(lifecycle): avoid warning on completion-only duplicates"
+  },
+  {
+   "source": "prompt",
+   "commit": "b1dedf175b",
+   "checkpoint": "01M26CWTZVWQ9B880TRM84FTV5",
+   "text": "can you please address the findings in this trail, https://entire.io/gh/entireio/cli/trails/1282/feat-copilot-cli-track-subagent-tasks/changes\n\n---\n\ncan you run login and ill auth\n\n---\n\nyou should be able to access, can you try different way then\n\n---\n\ndid you apply fixes?"
+  },
+  {
+   "source": "commit_message",
+   "commit": "37c4bdd161",
+   "checkpoint": "01M248VBDZNV4HGRDANKJRT61R",
+   "text": "fix(lifecycle): honor finalized session state"
+  },
+  {
+   "source": "prompt",
+   "commit": "37c4bdd161",
+   "checkpoint": "01M248VBDZNV4HGRDANKJRT61R",
+   "text": "can you look at this trail for codex subagent tracking, https://entire.io/gh/entireio/cli/trails/1197/codex-subagent-tracking/changes refer to the other prs/ trails in the cli that were already merged for subagent support for more context. the goal is for all agents to have full subagnet support.\n\nmaybe check on the branch associated with the trail to see if you can find the past session i had working on this, i was smoke testing this trail last and now i cnat find the session\n\nlogin to entire if you need first\n\n---\n\ncan you fix the findings and then re test the smoke test, basically we need to test with real codex session, creating checkpoint with subagent, so we can test the implementaiton just as end user not just wiht e2e tests\n\n---\n\nyes\n\n---\n\nyes\n\n---\n\ncan you give me full spec\n\n---\n\n"
+  }
+ ],
+ "cost": {
+  "usd": 0.045263,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 546,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 9933
+ },
+ "trace_id": "13f98bb329edf912fba7920274894c18",
+ "error": null,
+ "trace_spans": 6
+}

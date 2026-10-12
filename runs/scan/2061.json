@@ -1,0 +1,176 @@
+{
+ "issue": 2061,
+ "title": "Cursor subagentStop has no subagent_id; Entire correlation key goes empty",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.72,
+  "rationale": "The evidence shows Cursor's subagent_id was parsed into ToolUseID by analogy with other agents, and Codex's mapping was chosen deliberately because Codex has no tool_use_id. Nothing shows anyone decided that Cursor's Stop should have an empty correlation key. The evidence never addresses Cursor's missing subagent_id on Stop, so the empty key looks like an unnoticed gap.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 8,
+  "spans": 4,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/claudecode/lifecycle.go",
+    311,
+    371,
+    "func:parseSubagentStop"
+   ],
+   [
+    "cmd/entire/cli/agent/codex/lifecycle.go",
+    168,
+    186,
+    "func:parseSubagentStop"
+   ],
+   [
+    "cmd/entire/cli/agent/cursor/lifecycle.go",
+    213,
+    238,
+    "func:parseSubagentStop"
+   ],
+   [
+    "cmd/entire/cli/state.go",
+    288,
+    290,
+    "func:DetectFileChanges"
+   ]
+  ],
+  "lines": 109,
+  "lines_linked": 48,
+  "checkpoints": 7
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "8bd683ea64",
+   "checkpoint": "01M4BSMV873ACG3DA56SK9RXQA",
+   "text": "claude-code: verify a Workflow agent's transcript and key each run's stop\n\nA Workflow agent's SubagentStop transcript path came straight from the hook\npayload, and the capture read whatever existing file it named into the\ncheckpoint. It is now used only when it is exactly\n<session>/subagents/workflows/<runId>/agent-<id>.jsonl for this session and\nagent inside the parent's session directory, with no link below it;\nanything else is dropped and the layout lookup applies.\n\nThat file's run is passed on as SubagentRunID. A resumed run reuses its\nagents' IDs, so its launch found the earlier run's completed record (not\nyet condensed) and added none, and its stop was then skipped as a\nduplicate, losing the run's files, transcript and tokens. The stop now\ncompletes a record of its own unless one already holds the same run's\ntranscript, whichever order the runs' stops arrive in."
+  },
+  {
+   "source": "transcript",
+   "commit": "8bd683ea64",
+   "checkpoint": "01M4BSMV873ACG3DA56SK9RXQA",
+   "text": "[user] can you find the other session in this worktree where we were working and tell me what other gaps we needed to address\n[assistant] I stopped the #2674 fix without changing anything. Another Claude session, `f1fbccf6`, started editing that worktree just as my agent began. It's working on the same findings: the attach overwrite and the dropped subagent tokens.\n\nMy agent confirmed finding 1 before it stopped. Attach takes the session's checkpoint from 100 output tokens down to 7, and main doesn't have this bug. It didn't check findings 2–5.\n\nMy suggestion is to let that session finish #2674, then rerun the Codex review on its new head to confirm all five findings are fixed. #2670 and #2687 are still in progress.\n\nI'm still w"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a41a522878",
+   "checkpoint": "01KZS95EE9F5Y6WN7DCK45QZPB",
+   "text": "feat(codex): track subagents via Codex's SubagentStart/SubagentStop hooks\n\nCodex was the one agent named in the original subagent-tracking request with zero\nsubagent tracking, even though it ships first-class hooks for it. Wire them.\n\nCodex's identity fields are the opposite of what the names suggest, and getting\nthis backwards would attribute subagent work to a session Entire has never seen:\n\n  - session_id is \"the identity shared by the root thread and all descendant\n    threads\" (session/session.rs) — the *user's* session. It maps straight to\n    SessionID.\n  - agent_id is the subagent thread's own id. Codex sends no tool_use_id, so\n    agent_id doubles as ToolUseID: it is the only value correlating a start with\n    its stop, and Entire keys pre-task state (pre-task-<id>.json) and the task\n    metadata directory on ToolUseID.\n\nSubagentStop also carries two transcripts — transcript_path is the parent rollout,\nagent_transcript_path the subagent's own. Rather than teach the framework a second\nlayout to guess, add Event.SubagentTranscriptPath so an agent can *declare* where\nits subagent transcript is; handleLifecycleSubagentEnd prefers it and falls back to\nthe Claude Code layout guess. A declared-but-missing path warns rather than\nsilently substituting, because that disagreement is exactly what went unnoticed\nwhile the guess quietly returned \"\" for every non-Claude agent.\n\nThat mechanism immediately fixes a second agent: Cursor has parsed\nagent_transcript_path into its raw str"
+  },
+  {
+   "source": "transcript",
+   "commit": "a41a522878",
+   "checkpoint": "01KZS95EE9F5Y6WN7DCK45QZPB",
+   "text": "[assistant] -subagent probe | Parent session gets hijacked (details below). |\n\n## Four confirmed defects\n\n**1. Claude Code's subagent transcript is never captured.** `handleLifecycleSubagentEnd` (`cmd/entire/cli/lifecycle.go:1152`) looks for `<slug>/agent-<id>.jsonl`. CC 2.1.221 actually writes `<slug>/<session-id>/subagents/agent-<id>.jsonl`. Production proof: every `\"subagent completed\"` line in `cli/`, `cli_experiments/` and `cli_experiments_2/` logs has `agent_id` but no `subagent_transcript` attr — it only logs when the path resolves. Consequence: task checkpoints store no subagent transcript, and fi\n[user] Review target: `Review the diff of branch soph/fix-subagent-transcript-path against main (git diff main...HEAD): cmd/entire/cli/transcript.go, cmd/entire/cli/lifecycle.go, cmd/entire/cli/transcript_test.go, cmd/entire/cli/integration_test/subagent_transcript_layout_test.go`\n\n`/simplify → 4 cleanup agents in parallel → apply the fixes`\n\nYou are improving the quality of the changed code, not hunting for bugs. Review\nit for reuse, simplification, efficiency, and altitude issues, then fix what you\nfind. Do not look for correctness bugs — that is what `/code-review` is for.\n\n## Phase 0 — Gather the\n[user] code/transcript.go:425-444`, `agent/factoryaidroid/transcript.go:391-409`.\nConsumers that must rescope, replace, or preserve: `strategy/manual_commit_git.go:149-152`, `:352-383`, `:394-398`; `session/state.go:281-310`, `:458-470`; `session_adopt.go:490`; `agentimport/linesplit.go:59-113`, `agentimport/agentimport.go:333-339`; `strategy/manual_commit_condensation.go:798-807` (new), `:822-838`, `:1128-1133`/`:1174-1175`; `checkpoint/persistent.go:1005-1035` (new); `checkpoint_tokens.go:360-380`; `types/token_usage.go:49-70`.\n\n**Eight of those seventeen exist for no reason other than the mixed sc"
+  },
+  {
+   "source": "prompt",
+   "commit": "a41a522878",
+   "checkpoint": "01KZS95EE9F5Y6WN7DCK45QZPB",
+   "text": "1935 mentions that the logs are now captured, are they really? like in the shadow branch but in actual checkpoints?\n\n---\n\ndid you update pr description and also the trail description\n\n---\n\ncan you run simplify on each of the 3 PRs\n\n---\n\n<task-notification>\n<task-id>ad2ea9e15f0b96f86</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments-2/f12d4d56-00f1-45df-a94c-6a3cf2714244/tasks/ad2ea9e15f0b96f86.output</output-file>\n<status>completed</status>\n<summary>Agent \"Altitude review of PR1 diff\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<"
+  },
+  {
+   "source": "commit_message",
+   "commit": "bfe53dc122",
+   "checkpoint": "01M0G5T6BBH7NGQE7KDRZHWFDS",
+   "text": "top-capture\n\nBoth sides grew overlapping subagent work. Resolutions:\n\n- agent/event.go: our SubagentTranscript and main's SubagentTranscriptPath\n  were duplicates of the same \"agent-declared subagent transcript\" concept.\n  Unified onto main's SubagentTranscriptPath, so Codex's and Cursor's\n  declarations survive alongside Claude Code's SubagentStop, which now\n  populates the same field. Kept our Final flag (main has no equivalent; it\n  disambiguates the launch-time stub from true completion).\n- lifecycle.go: kept our event.Final dispatch and durable task-record\n  machinery, and adopted main's declaredSubagentTranscript helper as the\n  single resolution path, so a declared-but-missing path warns and falls back\n  to layout resolution. Also carried main's capture-degradation handling\n  (logStatusDegrade plus the UntrackedScanSkipped new-file guard) and\n  recordCaptureDegraded, which has live callers.\n- checkpoint/persistent.go: the dead per-write IsTask task writer stays\n  deleted (#2058); writeTaskRecordEntries stays. Main's edits to those\n  deleted functions are discarded, except its size cap (below).\n- strategy/manual_commit_condensation.go: carried main's subagent-transcript\n  size cap into the task materializer, which had no size guard. The cap is\n  measured against sanitized bytes and skips only the jsonl, recording the\n  new taskTranscriptReasonTooLarge category in task.json; the path goes to\n  the log, never to the pushed reason.\n- lifecycle_test.go: both branches added "
+  },
+  {
+   "source": "transcript",
+   "commit": "bfe53dc122",
+   "checkpoint": "01M0G5T6BBH7NGQE7KDRZHWFDS",
+   "text": "[user]  Then strengthen the test to assert the task step reaches the v1 branch or at least that `FullyCondensed` is only set once the shadow branch is consumed.\n\n**Important**\n\n2. **The label-fallback wart (lifecycle.go:1246-1249): code and comment disagree.** The comment says \"fall back to the event's own fields only if the marker somehow lacks *them*\" (per-field), and the `InFlightTask` doc repeats that framing — but the code is all-or-nothing on the pair: a marker with `SubagentType` set and `TaskDescription` empty clobbers a non-empty `event.TaskDescription` with `\"\"`. No behavioral impact today \n[user] and verified, pushed to `feat/subagent-stop-capture` at `9e2ade8bd`.\n\n**Fix 1 (High, verified — attribution pollution):** Added `analyzerFilesOnly bool` to `subagentCaptureOptions` in `cmd/entire/cli/lifecycle.go`. When set, `captureSubagentTaskStep` skips the `LoadPreTaskState`/`DetectFileChanges` whole-worktree merge entirely and captures only `event.ModifiedFiles` + analyzer-extracted files. Set unconditionally in `handleSubagentStopFinal`'s call to `captureSubagentTaskStep` (reaching that call always means a marker was claimed, i.e. a background task — foreground tasks never get an in-flig\n[user] 2ade8bd` (PR #2032). Analysis of the four new/extended types follows.\n\n## Type: `session.InFlightTask` (+ `State.AddInFlightTask` / `RemoveInFlightTask` / `FindInFlightTask`)\n\n`cmd/entire/cli/session/state.go`\n\n### Invariants Identified\n- **ToolUseID uniqueness** within `State.InFlightTasks` — enforced by `AddInFlightTask` (replace-on-match), and load-bearing: `RemoveInFlightTask` removes only the first match, so a duplicate entry would leak a stale marker.\n- **Marker lifecycle**: added at background launch; cleared only by a Final capture (`claimInFlightTask` in lifecycle.go); turn-end increm"
+  },
+  {
+   "source": "commit_message",
+   "commit": "6e9672cdcb",
+   "checkpoint": "f5946bdba9af",
+   "text": "fix hooks"
+  },
+  {
+   "source": "transcript",
+   "commit": "6e9672cdcb",
+   "checkpoint": "f5946bdba9af",
+   "text": "[assistant] put` method** - `cursor.go:76` implements `ParseHookInput(hookType agent.HookType, ...)` which is **not part of the `Agent` interface**. The interface uses `ParseHookEvent(hookName string, ...)` (in `lifecycle.go`). The `ParseHookInput` method appears to be dead code from an older interface pattern that no other agent implements.\n\n2. **No `TranscriptAnalyzer` implementation** - Claude Code and OpenCode both implement `TranscriptAnalyzer` (for `GetTranscriptPosition`, `ExtractModifiedFilesFromOffset`, `ExtractPrompts`, `ExtractSummary`). Since Cursor uses the same JSONL format as Claude Code, i\n[assistant] Now I'll add the `TranscriptAnalyzer` implementation to `lifecycle.go`. The Cursor agent uses the same JSONL format as Claude Code, so the implementations are structurally identical - they delegate to the shared `transcript` package.\n[assistant] ing/json`)\n\n**2. Removed unused `Role` field from `transcript/types.go`**\n- The `Role` field on `transcript.Line` was never read by any code\n\n**3. Implemented `TranscriptAnalyzer` for Cursor (`cursor/lifecycle.go`)**\n- `GetTranscriptPosition()` - line count for JSONL transcripts\n- `ExtractModifiedFilesFromOffset()` - files modified since a given line\n- `ExtractPrompts()` - user prompts from transcript\n- `ExtractSummary()` - last assistant text as summary\n- Added compile-time interface assertion\n\n**4. Fixed `FormatResumeCommand`**\n- Changed from invalid `\"cursor --resume \" + sessionID` to `\"Ope"
+  },
+  {
+   "source": "prompt",
+   "commit": "6e9672cdcb",
+   "checkpoint": "f5946bdba9af",
+   "text": "please review PR 392 compared to the instructions in pr 442\n\n---\n\nwrite this out to review-392.md and then fix the issues\n\n---\n\nCursorAgent cannot implement TranscriptAnalyzer because the transcript does not tell us which files were modified\n\n---\n\nlets add a comment in types.go explaining that Type is for claude and Role is for Cursor\n\n---\n\nnow update review-392.md to reflect what we actually changed\n\n---\n\ncommit this\n\n---\n\nlets now improve the test coverage for the checkpoint lifecycle. there is a sample.jsonl file with a reference transcript from cursor\n\n---\n\nThis session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nAnalysis:\nLet me chronologically analyze the conversation:\n\n1. **User's first r"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "Capture Claude Code background subagents into checkpoints\n\nClaude Code runs most Agent calls in the background without the model passing run_in_background (or passes it as the string \"true\"), so the launch was classified as foreground, completed empty, and dropped. Its SubagentStop also carries agent_id but never tool_use_id, so even a recorded marker was never found.\n\nClassify the launch from tool_response.status (\"async_launched\" / \"completed\"), which Claude Code reports authoritatively, falling back to run_in_background (boolean or boolean string). At SubagentStop, find the launch record by agent ID (preferring a live record, for resumed subagents) and adopt its tool_use_id. The integration harness now sends the payload shapes Claude Code 2.1.288 actually sends."
+  },
+  {
+   "source": "transcript",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "[assistant] Found two issues:\n\n- **P2 — Resumed subagents can match an old completed record.** [`state.go:689`](cmd/entire/cli/session/state.go#L689) returns the first matching `AgentID`. Resuming a Claude subagent reuses its agent ID with a new tool-use ID. If the earlier completed record hasn’t been condensed, the stop handler selects it and skips completion of the new task. Prefer the live matching record and add a resume regression test.\n\n- **P2 — Malformed tool input is logged verbatim.** [`hooks.go:98–99`](cmd/entire/cli/hooks.go#L98) logs arbitrary `run_in_background` content without redaction. An \n[assistant] _background` from `tool_input`. If it's absent or is the string `\"true\"`, the launch is treated as foreground. The launch is then finished immediately by `completeSubagentTaskRecord`, which skips at `lifecycle.go:1972` because nothing has changed yet. That matches the report.\n\n**There's a better signal than `tool_input`.** The Claude transcripts for both runs record the async launch result as:\n```\n{\"isAsync\":true,\"status\":\"async_launched\",\"agentId\":\"aa6579c96e11a281b\",...}\n```\nSo suggestion 2 is the right one. Check `tool_response.isAsync` (or `status == \"async_launched\"`), not the text \"Async\n[assistant] ment to capture. Nothing else is editing while the parent waits, so every worktree change since the pre-task snapshot belongs to the subagent. The foreground path therefore diffs the whole worktree (`DetectFileChanges`) and records the task right away.\n\n**Background:** PostToolUse fires a few seconds after launch, when the subagent has done nothing yet. Capturing then would record an empty task. That's exactly what's happening in this bug. So `faa9a540df` (2026-08-17) added the split. On a background launch, Entire records an in-flight marker and waits for SubagentStop, the first event that co"
+  },
+  {
+   "source": "prompt",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "can you review the changes\n\n---\n\ncan you review again"
+  },
+  {
+   "source": "commit_message",
+   "commit": "c7b3631454",
+   "checkpoint": "01KZW5FNTKSK9PDWZQFRWSRR0T",
+   "text": "fix(hooks): bound the first-checkpoint git-status subprocess and close review gaps\n\nAdversarial-review follow-ups to the status-walk budget:\n\n- Bound the first-checkpoint `git status --porcelain -z -uall` subprocess\n  in collectChangedFiles with the same (now exported)\n  gitrepo.StatusWalkBudget via context.WithTimeout — after a go-git\n  breach the hook could otherwise still outlive the agent's timeout\n  stuck in an undeadlined child git. On expiry the child is killed and\n  the error wraps gitrepo.ErrStatusBudgetExceeded; the turn-end and\n  subagent-end handlers recognize the sentinel from SaveStep /\n  SaveTaskStep and warn-and-skip the checkpoint instead of failing the\n  hook.\n\n- Cover the cross-process marker shape the same-process test could not\n  reach: turn start breaches and writes UntrackedScanSkipped, turn end\n  runs with a fresh latch and a healthy walk — the changes.New guards\n  in the lifecycle handlers are the sole protection against claiming\n  every pre-existing untracked file, and deleting either guard now\n  fails a test (verified by mutation).\n\n- Give `entire session adopt` an explicit unbounded walk\n  (detectFileChangesUnbounded): it is a user-attended command, so a\n  slow-but-healthy repo should finish rather than error at the\n  hook-path budget.\n\n- State explicitly (comment at untrackedFilesOrSkip) that the\n  pre-prompt/pre-task scans fail open on ANY error, not just budget\n  breaches — the old fail-hook behavior on status errors was the bug."
+  },
+  {
+   "source": "transcript",
+   "commit": "c7b3631454",
+   "checkpoint": "01KZW5FNTKSK9PDWZQFRWSRR0T",
+   "text": "[assistant] Only one caller, already reviewed. Let me check the `hooks_claudecode_posttodo.go` caller of `DetectFileChanges` to confirm it also handles nil changes/errors gracefully with the new budgeted status (not part of diff but verifying no regression)."
+  },
+  {
+   "source": "prompt",
+   "commit": "c7b3631454",
+   "checkpoint": "01KZW5FNTKSK9PDWZQFRWSRR0T",
+   "text": "hand off from the most recent Claude Code session — read its final handoff brief and evaluate PR #1951 as it instructs\n\n---\n\ni think there are too many tests, what do you think?\n\n---\n\nyep go ahead. Also, take a look at existing tests we have too, like don't want to rewrite anything we have already, existing infrastructure too. Also, use this as a test guide and add to your agent.md\n\n## Tests and Comments\n\n- Tests are not required merely because production code changed. Add or modify tests only when they protect meaningful observable behavior, a non-trivial invariant or boundary, or a concrete regression.\n- Before adding a test, identify the realistic regression it would catch and why existing coverage would not catch it. If the only rationale is coverage, symmetry, or \"the code changed,\" o"
+  },
+  {
+   "source": "commit_message",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Add consistent context plumbing everywhere"
+  },
+  {
+   "source": "transcript",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "[user] lap.go` — content overlap detection functions\n- `strategy/cleanup.go` — cleanup functions\n- `strategy/push_common.go` — shared push logic\n- `strategy/hooks.go` — `getGitDirInPath`\n- `strategy/session_state.go` — package-level session state functions\n\n### Layer 3: Standalone Functions in session/checkpoint/paths\n\n**Files:**\n- `session/state.go` — `NormalizeAfterLoad`, `SaveStateFile` (use passed ctx instead of creating Background)\n- `session/phase.go` — `ApplyTransition` (add ctx parameter)\n- `checkpoint/temporary.go` — internal warn logging (use passed ctx)\n- `checkpoint/committed.go` — intern\n[assistant] erlap.go` - still has context.Background()\n- `cleanup.go` - still has context.Background()\n- `hooks.go` - still has context.Background()\n- `push_common.go` - still has context.Background()\n- `session_state.go` - still has context.Background()\n- `session.go` - still has context.Background()\n\n**Layer 3 (session/checkpoint/paths):**\n- `session/state.go` - context.Background()\n- `session/phase.go` - context.Background()\n- `checkpoint/committed.go` - context.Background()\n- `checkpoint/temporary.go` - context.Background()\n- `paths/paths.go` - context.Background()\n\n**Layer 4 (lifecycle/hooks):**\n- `l\n[user] er context propagation\n\n**Files:** Multiple files including:\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/explain.go` (lines ~797, ~889, ~939, ~1035, ~1295)\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/state.go` (lines ~332, ~467, ~483)\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/transcript.go` (line ~264)\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/config.go` (lines ~32, ~58, ~70, ~78, ~94)\n\n**Severity:** Medium\n\nThe primary goal of this change is to thread `context.Context` properly, but several functions still use `context.TODO()` instead of accepting a context parameter. While `context.TODO("
+  },
+  {
+   "source": "prompt",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Implement the following plan:\n\n# Plan: Add Context Plumbing Throughout the CLI\n\n## Context\n\n`main.go` creates a cancellable context (`context.WithCancel`) and passes it to Cobra via `rootCmd.ExecuteContext(ctx)`. However, no command retrieves it via `cmd.Context()`. Instead, ~120+ production code locations create `context.Background()`, losing cancellation support from SIGINT/SIGTERM and any parent context values.\n\n## Goal\n\nThread the root context from `main.go` through the entire call chain, replacing `context.Background()` with the properly propagated context. This enables signal-based cancellation to propagate to git operations, checkpoint writes, and other long-running work.\n\n## Exceptions (keep `context.Background()`)\n\n- `main.go:18` — this IS the root context\n- `telemetry/detached_un"
+  }
+ ],
+ "cost": {
+  "usd": 0.040963,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 174,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 9788
+ },
+ "trace_id": "f3fd72e354a3eaac7f0ad8809d23aaa7",
+ "error": null,
+ "trace_spans": 6
+}

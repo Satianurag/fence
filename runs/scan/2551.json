@@ -1,0 +1,98 @@
+{
+ "issue": 2551,
+ "title": "entire session resume <branch> reports \"branch not found\" for a Unicode-equivalent (NFC vs NFD) branch name that git resolves fine",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.85,
+  "rationale": "The evidence covers validation of branch names, context plumbing, and alternates-aware repo opening. None of it mentions Unicode normalization of branch names, so byte-exact comparison was never a chosen behaviour but simply what the code did.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 2,
+  "symbols_named": 5,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/git_operations.go",
+    186,
+    203,
+    "func:GetCurrentBranch"
+   ],
+   [
+    "cmd/entire/cli/integration_test/testenv.go",
+    663,
+    682,
+    "func:GetCurrentBranch"
+   ],
+   [
+    "cmd/entire/cli/git_operations.go",
+    266,
+    290,
+    "func:BranchExistsLocally"
+   ]
+  ],
+  "lines": 63,
+  "lines_linked": 16,
+  "checkpoints": 3
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "f868d00f6c",
+   "checkpoint": "01M1PGJD97M4X8P0H3VSM2683T",
+   "text": "fix(git): validate branch names in the three helpers that skipped it\n\nBranchExistsOnRemote passes the name to `git ls-remote` and to go-git,\nBranchExistsLocally to go-git, and CheckoutBranch to `git checkout` behind\nnothing but a leading-dash guard. All three take names from CLI input or\nfrom a trail's branch field.\n\nThe dash guard was the narrowest part of the problem: `git checkout` also\nreads `--`, a pathspec, and `@{-1}`. ValidateBranchName covers those, and\nit still admits an object id, so CheckoutBranch's documented \"or commit\"\nbehaviour survives even though no caller uses it.\n\nValidating both existence helpers rather than only the remote one keeps\ntheir answers symmetric: they are called side by side on the same name,\nand \"invalid\" from one with \"no such branch\" from the other is worse than\neither.\n\nAssisted-by: Claude Opus 4.8 <noreply@anthropic.com>"
+  },
+  {
+   "source": "transcript",
+   "commit": "f868d00f6c",
+   "checkpoint": "01M1PGJD97M4X8P0H3VSM2683T",
+   "text": "[assistant] ry; `checkGitHookSymlinks` in doctor |\n| 2 | `66a2cadc7` | `discoverSummaryProviderIfMissing` gated on `IsExternalAgentsEnabled` |\n| 3 | `6dc349a03` | `ValidateBranchName` in `BranchExistsOnRemote`, `BranchExistsLocally`, `CheckoutBranch` |\n| 4 | `f40e06b94` | `userdirs.RequireAbsoluteOverride` — one rule, plugin + config + cache |\n| 5 | `a31b71133` | `TestTranscriptReadsOnlyShrink` ratchet |\n| 6 | `9daa32aed` | `sh -c` kept, and pinned: `TestUpdateCommandIsAlwaysALiteral` |\n| — | `9b189ec70` | Self-review polish across the above |\n\n**Three places I deviated from the plan, each deliberate:**\n\n"
+  },
+  {
+   "source": "commit_message",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Add consistent context plumbing everywhere"
+  },
+  {
+   "source": "transcript",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "[user] eckpoint`\n- `explain.go` — all explain functions (13 occurrences)\n- `status.go` — `runStatus`\n- `setup.go` — `countSessionStates`, `countShadowBranches`\n- `config.go` — `GetStrategy` logging calls\n- `git_operations.go` — `getGitConfigValue`, `GetGitAuthor`, `IsOnDefaultBranch`, `HardResetWithProtection`, `CheckoutBranch`\n- `versioncheck/versioncheck.go` — `CheckAndNotify`, `fetchLatestVersion`\n- `agent/opencode/cli_commands.go` — opencode command functions\n- `agent/opencode/opencode.go` — session deletion logging\n- `agent/claudecode/lifecycle.go` — lifecycle handler\n- `agent/geminicli/gemini.g\n[user]  call sites in test files, the error message strings were mechanically modified to include `context.Background(),` within the function name -- producing nonsensical test output like:\n\n```go\nt.Fatalf(\"BranchExistsLocally(context.Background(),) error = %v\", err)\nt.Error(\"CheckoutBranch(context.Background(),) expected error for nonexistent branch, got nil\")\nt.Errorf(\"runStatus(context.Background(),) error = %v\", err)\nt.Errorf(\"resolveWorktreeBranch(context.Background(),) = %q, want %q\", branch, wantBranch)\n```\n\nThere are **40+ instances** across `resume_test.go` and `status_test.go`. The original\n[user] hs.RepoRoot()`, `paths.AbsPath()` -- the most deeply called functions\n- **Settings layer**: `settings.Load()`, `settings.Save()`, `settings.IsSetUp()`, etc.\n- **Git operations**: `openRepository()`, `GetCurrentBranch()`, `HasUncommittedChanges()`, `CheckoutBranch()`, etc.\n- **Agent interfaces**: `Agent.DetectPresence()`, `HookSupport.InstallHooks()`, `HookSupport.AreHooksInstalled()`, etc.\n- **Strategy interfaces**: `Strategy.SaveStep()`, `Strategy.Rewind()`, `Strategy.PostCommit()`, and many more\n- **Logging**: `logging.Init()`\n- **Version check**: `CheckAndNotify()`, `fetchLatestVersion()`\n\n"
+  },
+  {
+   "source": "prompt",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Implement the following plan:\n\n# Plan: Add Context Plumbing Throughout the CLI\n\n## Context\n\n`main.go` creates a cancellable context (`context.WithCancel`) and passes it to Cobra via `rootCmd.ExecuteContext(ctx)`. However, no command retrieves it via `cmd.Context()`. Instead, ~120+ production code locations create `context.Background()`, losing cancellation support from SIGINT/SIGTERM and any parent context values.\n\n## Goal\n\nThread the root context from `main.go` through the entire call chain, replacing `context.Background()` with the properly propagated context. This enables signal-based cancellation to propagate to git operations, checkpoint writes, and other long-running work.\n\n## Exceptions (keep `context.Background()`)\n\n- `main.go:18` — this IS the root context\n- `telemetry/detached_un"
+  },
+  {
+   "source": "commit_message",
+   "commit": "437768e2f4",
+   "checkpoint": "4790d9fad21c",
+   "text": "git: open repositories with alternates-aware storage\n\nShared clones can store required objects only through .git/objects/info/alternates. Several checkpoint paths opened repositories with plain go-git storage, so local-only checkpoint commits reachable through alternates could look missing. That made metadata rebase and push paths silently skip checkpoint data and leave remote checkpoint branches incomplete.\n\nAdd a gitrepo package that centralizes repository opening, resolves linked worktree .git/commondir layouts, and wires go-git's AlternatesFS so multiple and nested alternates are readable. Route repository openings across the CLI and shared test harnesses through that package so go-git sees the same object graph everywhere.\n\nAlso close repository handles after use. Upstream go-git requires callers to close repositories to release filesystem storage resources, so the shared opener documents ownership and call sites now defer Close or register test cleanup."
+  },
+  {
+   "source": "prompt",
+   "commit": "437768e2f4",
+   "checkpoint": "4790d9fad21c",
+   "text": "The TestFetchAndRebase_SharedCloneLocalCommitInAlternate confirms that local clones depending on alternates work. It is currently failing. This is due to the AlternateFS not being properly set on go-git. Make the test pass without changing the test. A copy of the go-git code can be found at ../go-git.\n\n---\n\nWe need to also support multiple alternates.\n\n---\n\nAre there other places in the code base that open repositories without using the OpenRepository logic?\n\n---\n\nCan those points use the new func or are we better off extracting that logic into a separate package?\n\n---\n\nLet's do that. Add a comment on the non-converted sites explaining the reasoning of not migrating now.\n\n---\n\nActually, let's get all repo opening points to call the new package instead. That's a cleaner change.\n\n---\n\nrepo c"
+  }
+ ],
+ "cost": {
+  "usd": 0.020949,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 113,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4937
+ },
+ "trace_id": "13ea973c210c62744be0fac4344f0756",
+ "error": null,
+ "trace_spans": 6
+}

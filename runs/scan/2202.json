@@ -1,0 +1,62 @@
+{
+ "issue": 2202,
+ "title": "Make test git isolation structural: runGit helper + forbidigo rule",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.6,
+  "rationale": "The issue reports that git isolation in tests relies on call-site repetition with no structural enforcement. The evidence shows the maintainers wanted a helper (`RunGit`) and migrated bare sites, but it never shows they chose to leave isolation unenforced or to skip a forbidigo rule. The `GitIsolatedEnv` delegate was only a naming decision, so the reported gap was not a deliberate choice.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 10,
+  "symbols_named": 2,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/testutil/testutil.go",
+    178,
+    180,
+    "func:GitIsolatedEnv"
+   ]
+  ],
+  "lines": 3,
+  "lines_linked": 3,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "ea08221ce4",
+   "checkpoint": "01M1AR3NHAJPRR8ETDQYE9WKY5",
+   "text": "Keep the testutil.* spelling at call sites\n\nThe mass rename to gitenv.* churned ~80 files for no behavior change.\nCallers keep the majority spelling (testutil.GitIsolatedEnv, RunGit,\nIsolateGitConfigEnv, EnvGitHermetic) as thin delegates over the one\ngitenv implementation; gitenv is called directly only where the import\ncycle forces it (gitrepo's reftable tests) and by e2e's IsolateMain."
+  },
+  {
+   "source": "transcript",
+   "commit": "ea08221ce4",
+   "checkpoint": "01M1AR3NHAJPRR8ETDQYE9WKY5",
+   "text": "[assistant] Done — the guard fix now uses `testutil.GitIsolatedEnv()` as you specified, verified passing under your real gitconfig, committed as 68bd318ff on `paul/guard-grep-no-color`. Nothing is pushed.\n[assistant] Comments stripped (0b28196d8) — the diff is now pure code: `revParse.Env = testutil.GitIsolatedEnv()`, `grep.Env = testutil.GitIsolatedEnv()`, package moved to `gitrepo_test`. Tests, fmt, lint all pass.\n\nFor the PR body when you push: the guard failed locally under `color.ui = always` (ANSI escapes broke its output parse); `GitIsolatedEnv` pins git to a clean config so no user setting can skew the scan.\n[user] good.  check for other instances where we should have GitIsolatedEnv.  I wonder if we can even refactor things so that instead of exec.Command(\"git\", \"rev-parse\", ...) we call something like testutil.IsolatedGit(\"rev-parse\", ...)\n[assistant] Now the remaining four files — `testutil.go`, `redact_cache_scope_test.go`, `checkpoint/remote/git_test.go`, `resume_test.go`, `commit_hook_perf_test.go`:\n[assistant] dit found (140 git execs in test code):**\n- 95 already isolated, 54 genuinely bare, migrated in this commit.\n- The helper you wanted already existed: `testutil.RunGit(t, dir, args...)` runs git with `GitIsolatedEnv()`, fails the test on error, returns output. No new API needed.\n- Biggest offender was `strategy/hooks_test.go` — 37 five-line exec blocks became one-liners (file shrank 243 lines). Also fixed: `testutil.GitCheckoutNewBranch` itself, `review/scope_test.go`, `review_context_test.go`, `checkpoint/redact_cache_scope_test.go`, `commit_hook_perf_test.go`, `integration_test`'s `GitMerge`,"
+  },
+  {
+   "source": "prompt",
+   "commit": "ea08221ce4",
+   "checkpoint": "01M1AR3NHAJPRR8ETDQYE9WKY5",
+   "text": "As for paul/guard-grep-no-color - that's not the right fix.  The proper fix would be to isolate 'git' invocations with a guaranteed-empty config file - i think there is a helper for this in the codebase somewhere.\n\n---\n\nremove the sloppy comment.   taht belongs in PR body only.  just a code-change.\n\n---\n\ngood.  check for other instances where we should have GitIsolatedEnv.  I wonder if we can even refactor things so that instead of exec.Command(\"git\", \"rev-parse\", ...) we call something like testutil.IsolatedGit(\"rev-parse\", ...)\n\n---\n\nright ok continue\n\n---\n\n<task-notification>\n<task-id>bu2huaou7</task-id>\n<tool-use-id>toolu_01FyE9LRaykGT7dtHiTxFybL</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-paul-src-entireio-cli/cbac77ba-e468-44e9-8590-9d7d92b226bf/tasks/bu2huaou7.output</"
+  }
+ ],
+ "cost": {
+  "usd": 0.015481,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 419,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 2805
+ },
+ "trace_id": "c9a7245a5eaecc77eb1261d33cf72943",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,179 @@
+{
+ "issue": 2612,
+ "title": "Commit linking attaches an unrelated Codex session from another worktree when sessions share the Codex app-server daemon",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "decision",
+  "confidence": 0.6,
+  "rationale": "The commit message for identity-first linking explicitly chose nearest-ancestor matching with ties going to the most recently interacting session, and chose to union that match with worktree-matched sessions and guest-link it. The concurrent shared-daemon case wasn't considered, but the reported tie-break behaviour was deliberately designed.",
+  "quotes": [
+   {
+    "evidence_id": 6,
+    "source": "commit_message",
+    "commit": "f86f8a42c5",
+    "checkpoint": "01M08AY54K8908EW6MF62XGH0W",
+    "quote": "nearest ancestor wins, ties go to the most recently\ninteracting session, start times guard against PID reuse"
+   },
+   {
+    "evidence_id": 6,
+    "source": "commit_message",
+    "commit": "f86f8a42c5",
+    "checkpoint": "01M08AY54K8908EW6MF62XGH0W",
+    "quote": "The identity\nmatch is UNIONED with the worktree-matched set, never a replacement"
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 12,
+  "spans": 7,
+  "span_list": [
+   [
+    "cmd/entire/cli/proclive/proclive.go",
+    115,
+    151,
+    "func:ResolveOwner"
+   ],
+   [
+    "cmd/entire/cli/strategy/session_identity.go",
+    31,
+    47,
+    "func:findSessionsForCommitLinking"
+   ],
+   [
+    "cmd/entire/cli/strategy/session_identity.go",
+    84,
+    115,
+    "func:findSessionByCommitAncestry"
+   ],
+   [
+    "cmd/entire/cli/strategy/session_identity.go",
+    144,
+    152,
+    "func:isNearerOwner"
+   ],
+   [
+    "cmd/entire/cli/strategy/caller_session.go",
+    183,
+    259,
+    "func:resolveCallerIdentity"
+   ],
+   [
+    "cmd/entire/cli/agent/caller_session.go",
+    152,
+    166,
+    "func:CallerSessionCandidates"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_session.go",
+    293,
+    314,
+    "func:resolveWorktreeCandidates"
+   ]
+  ],
+  "lines": 209,
+  "lines_linked": 196,
+  "checkpoints": 6
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "adb8d529bb",
+   "checkpoint": "01M20MVC7XPS7EPSHR637S4EVX",
+   "text": "session: resolve the session running the command, not the one that moved last\n\n`entire session current` answered \"which session state moved most recently, preferring this worktree\" and described it as \"the active session for the current worktree\". Worktrees share one session store, so in a worktree with no sessions of its own it silently fell back across the whole store and returned a live session belonging to somewhere else — that worktree's path right there in the JSON, indistinguishable from a real answer.\n\nThat is not a cosmetic mislabel. Agents reach for this command to find their own session id, read the id back, and pass it to `entire session adopt`, which moves the named session into the current worktree and resets its checkpoint bookkeeping. A wrong id there mutates a third party's running session.\n\nFive agents already publish their session id into the environment of the processes they spawn, and Entire read none of them. `strategy.ResolveCallerSession` now answers the question directly, in tiers, each reported back so a caller can tell an identification from a guess: `caller-env` (the agent named it), `ancestry` (a session's recorded Owner is our ancestor — the same match commit linking performs, which is what covers the agents that publish nothing), `worktree`, then `other-worktree`. The weak tiers stay, because \"what has been happening in this repo\" is a real question; they just have to say that is what they answered. `SessionResolution.IsCaller()` is the gate for"
+  },
+  {
+   "source": "transcript",
+   "commit": "adb8d529bb",
+   "checkpoint": "01M20MVC7XPS7EPSHR637S4EVX",
+   "text": "[user]  and resume it, so the same task-id may notify more than once.</note>\n<result>I have everything needed. Here are the REUSE findings.\n\n## Finding 1 (primary): `sessionIDByOwnerAncestry` re-implements `findSessionByCommitAncestry`'s loop almost line-for-line\n\n- `cmd/entire/cli/strategy/caller_session.go:225-253` (`sessionIDByOwnerAncestry`)\n- duplicates `cmd/entire/cli/strategy/session_identity.go:84-112` (`(*ManualCommitStrategy).findSessionByCommitAncestry`)\n\nThe ranking loops are near-identical:\n\n```\nsession_identity.go:91-102                          caller_session.go:232-243\nfor _, state :=\n[user]  it another message and resume it, so the same task-id may notify more than once.</note>\n<result>## Simplification review — `strategy.ResolveCallerSession` and callers\n\nRead the full diff plus `agent/caller_session.go`, `strategy/caller_session.go`, `session_current.go`, both new test files, and `strategy/session_state.go`/`session_identity.go`/`paths/entiredir.go` for calibration. Findings below, organized by your six angles.\n\n### 1. `resolveCallerFromEnv` — simpler formulation exists\n\n**File:** `cmd/entire/cli/strategy/caller_session.go:145-195`\n\nThe loop carries three loop-scoped variables \n[user] .\n\n## ALTITUDE review: `strategy.ResolveCallerSession` (commit `4de2b6838`)\n\n### 1. Tier 4 (`other-worktree`) — report-don't-remove is defensible, but it's only half the fix\n\n`cmd/entire/cli/strategy/caller_session.go:39-44` (const), `:118-123` (`ResolveCallerSession`)\n\nThe diff's choice — keep tier 4, gate action on `IsCaller()`, label the tier, warn on stderr — is coherent *as a labeling strategy*, and I don't think deleting the tier outright is obviously better: the commit message's claim that \"what has been happening in this repo\" is a real, separate question a human can legitimately want "
+  },
+  {
+   "source": "prompt",
+   "commit": "adb8d529bb",
+   "checkpoint": "01M20MVC7XPS7EPSHR637S4EVX",
+   "text": "[P2] A single untracked environment claim can still lose to the wrong ancestor.\n cmd/entire/cli/strategy/caller_session.go:265–266\n\n If a tracked OpenCode session launches an untracked Codex session, only CODEX_SESSION_ID is published. OpenCode enters the candidate list through ancestry; Codex cannot enter because it lacks state. The single-claim exemption returns true, so OpenCode is reported as ancestry and\n passes IsCaller()."
+  },
+  {
+   "source": "commit_message",
+   "commit": "dee13d6dd0",
+   "checkpoint": "f6bcea2919b7",
+   "text": "proclive: add process-liveness package\n\nNew leaf package that captures a process's identity (PID + start-time\nfingerprint, plus host/boot guards) and reports whether that exact\nprocess is still alive. ResolveOwner walks up the process tree to the\nfirst non-shell, non-entire ancestor (the agent that spawned our hook),\nskipping the Go toolchain too so local-dev's `go run` wrapper isn't\nmistaken for the owner; it records no owner at all when the hostname\ncan't be determined, since a PID is only meaningful on its own machine.\n\nCheck returns Alive/Dead/Unknown — Dead on a missing PID, start-time\nmismatch (PID reuse), or reboot, and Unknown when it can't confirm the\nhost/boot or the platform can't introspect (Windows), so callers fail\nclosed to a timeout rather than trusting a stale PID. darwin records no\nboot guard: kern.boottime drifts when the wall clock is stepped (NTP),\nand darwin's absolute P_starttime already distinguishes a reused PID\nacross reboots; Linux uses ticks-since-boot and keeps the boot_id guard.\n\nStdlib + golang.org/x/sys/unix only, so session/strategy/cli can import\nit without an import cycle."
+  },
+  {
+   "source": "transcript",
+   "commit": "dee13d6dd0",
+   "checkpoint": "f6bcea2919b7",
+   "text": "[assistant] `integration_test` files are build-tagged out of the default lint, which is why their `_ =` patterns pass. Mine are linted. Let me fix all 10 issues. First `proclive.go` — the `String()` exhaustive case and the best-effort error handling in `ResolveOwner`:\n[assistant] ct alloc — cheap to call per session. \n\n**Decisions:** Apply two fixes — (1) the double-`procStat` walk (efficiency), (2) extract a shared `endSessionNow` for the session-end sequence (altitude #1). Skip the rest with notes: `String()`'s case+default is required by the `exhaustive` linter (not real redundancy); moving the sweep into `ListSessionStates` would make a read-path perform git writes (behavioral change, wrong direction); and a full `DisplayStatus()` consolidation reaches outside the diff into pre-existing stale/idle/ended labeling.\n\nFix 1 — single read per ancestor in `ResolveOwner`:\n[assistant] our cleanup agents (reuse, simplification, efficiency, altitude) reviewed the session-liveness diff. Two findings were worth fixing:\n\n**Fixed:**\n1. **Efficiency — redundant process reads in `proclive.ResolveOwner`** (`proclive.go`). The walk called `procStat(pid)` for the parent, then `procStat(ppid)` again on the next iteration — reading each ancestor's `/proc`/sysctl entry twice. Restructured to read each ancestor exactly once (`procStat` already returns parent + name + start together), roughly halving the syscalls on the per-turn hot path. Behavior-preserving.\n2. **Altitude — duplicated ses\n[assistant] Now fix **E** (`ResolveOwner` must record no owner if hostname is unknown — the host guard is essential):"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f86f8a42c5",
+   "checkpoint": "01M08AY54K8908EW6MF62XGH0W",
+   "text": "feat(strategy): link commits to sessions by process identity\n\nCommit-to-session linking guessed by worktree path: the commit hooks\nmatched SessionState.WorktreePath against the commit's worktree. Any\ndrift between that bookkeeping and reality lost the linkage — an agent\ncommitting in a sibling worktree produced an unlinked commit, or worse:\nwith a poisoned state dir, a wrong link. Both happened for real (three\nretro-attach incidents; most recently a leaked test fixture session,\nsessC, was linked to a commit and stamped a dangling trailer whose\ncheckpoint was never written).\n\nIdentity-first linking removes the guessing for agent commits. At\nsession start the hook records its nearest process ancestors\n(pid + start time; the agent process is among them, since agents run\nhooks as children) in SessionState.AgentAncestry. At commit time the\nhook walks its own ancestry (git <- tool shell <- agent) and matches\nthose refs: nearest ancestor wins, ties go to the most recently\ninteracting session, start times guard against PID reuse. The identity\nmatch is UNIONED with the worktree-matched set, never a replacement —\na commit condenses every session with pending content in its worktree,\nand identity adds the one that path matching missed.\n\nA commit identity-matched outside the session's home worktree is\nguest-linked: condensed and linked, but worktree-coupled state\n(BaseCommit, shadow-branch realignment) is never mutated from a foreign\nworktree — shadow branches are keyed by BaseCommit + W"
+  },
+  {
+   "source": "transcript",
+   "commit": "f86f8a42c5",
+   "checkpoint": "01M08AY54K8908EW6MF62XGH0W",
+   "text": "[assistant] ak will start failing — that's the guard working, but blast radius is unmeasured until the suite runs. Budget for a handful of test fixes.\n\n**Fix 2 — imported sessions never link.** One predicate in `manual_commit_session.go`'s matching (both `findSessionsForWorktree` and `findExactSessionsForWorktree`): skip `Kind.IsImported()`. Important scope correction from my earlier list: **do not exclude `ended`** — \"agent exits, user reviews, user commits\" is a mainstream flow where the ended session *must* link; only imports are historical-by-construction. Unit test: an imported session in the exact w\n[assistant] iene-vs-cause as *concepts*, but your recorded PR-splitting principle is split by **file overlap**, not concept — and these overlap almost completely. Fixes 2 and 4 edit `findSessionsForWorktree` in `manual_commit_session.go`; PR B's fallback tier *is* that same function — the identity match slots in above it, in the same call sites. Shipping them separately means PR B immediately rewrites the code PR A just touched. That's one behavior change — \"how a commit finds its session: identity first, hygienic worktree matching as fallback\" — and it reviews better as one coherent diff than as two PRs \n[assistant] RED on all three behaviors. GREEN — the matching changes in `manual_commit_session.go`:"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f561bab649",
+   "checkpoint": "01M08FKKDDWMWQHK39XVX51B5H",
+   "text": "fix(strategy): address review findings on identity linking\n\nCritical fixes from the review pass:\n\n- Guest-linked condensation no longer touches the home worktree's shadow\n  state. The gate previously guarded only the BaseCommit assignment;\n  the shadow-branch delete mark, the remaining-files diff (home shadow\n  tree vs the FOREIGN commit tree), and carry-forward (which reads file\n  content from the committing — wrong — worktree) all still ran, so a\n  guest condensation would rebuild the home worktree's shadow branch\n  with the committing worktree's files and then delete it. A guest now\n  condenses the transcript, records the trailer state, and returns.\n\n- The \"none was linked, run 'entire session adopt'\" stderr hint fired\n  from inside the worktree matcher, BEFORE the identity union ran — the\n  exact scenario this PR exists for printed a false \"none was linked\"\n  (twice: prepare-commit-msg and post-commit) on a commit that got a\n  trailer moments later, and also appeared on amend and post-rewrite.\n  The matcher now returns an ambiguity flag; the hint lives in the\n  commit-linking path and fires only when the FINAL set is empty.\n\nHardening:\n\n- Negative-path diagnostics: unresolvable ancestry (record and commit\n  time) and all-shell chains each log at Debug — previously a host\n  where process introspection is blocked (hidepid, sandbox) had\n  identity linking silently dead forever with no trace.\n- isSessionHomeWorktree is a pure comparison on the hook's\n  already-resolved worktr"
+  },
+  {
+   "source": "transcript",
+   "commit": "f561bab649",
+   "checkpoint": "01M08FKKDDWMWQHK39XVX51B5H",
+   "text": "[user] io/cli/.worktrees/session-identity/`.\n\n---\n\n## 1. BUG (HIGH) — \"none was linked\" printed to stderr even when the commit IS linked, and printed twice per commit\n\n**Location:** `cmd/entire/cli/strategy/manual_commit_session.go:283-285` (`resolveWorktreeCandidates`) interacting with `cmd/entire/cli/strategy/session_identity.go:35-44` (`findSessionsForCommitLinking`)\n\n`findSessionsForCommitLinking` calls `findSessionsForWorktree` **first**, and on multi-worktree ambiguity that path unconditionally prints:\n\n```\n[entire] Agent sessions in several other worktrees could match this commit; none was lin\n[user] y**: I analyzed every comment added across the 18 changed files, cross-checking each claim against the implementation (recording path in `initializeSession` → `recordAgentAncestry`, matching path in `findSessionsForCommitLinking` → `findSessionByCommitAncestry`, the worktree fallback in `resolveWorktreeCandidates`, the platform proctree code, and the test-isolation guard). The comment quality is high overall — most comments state real constraints the code cannot show, per house style. I found **one stale example that describes a state the recorder can no longer produce**, **one recurring \"fall\n[user] nt fires even when the commit *was* linked — and on amend/post-rewrite. Confidence: 92**\n\n`/Users/peytonmontei/Documents/entire/devenv/entireio/cli/.worktrees/session-identity/cmd/entire/cli/strategy/manual_commit_session.go:273-276` and `session_identity.go:36-43`\n\n`findSessionsForCommitLinking` calls `findSessionsForWorktree` *first*; the ambiguity decline prints unconditionally at `manual_commit_session.go:274` before the identity rescue at `session_identity.go:40` can add the guest. In the exact scenario this PR was built for (two live sibling worktrees, agent commits via identity), the us"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f7326e3d76",
+   "checkpoint": "01M215VA8N2E4SDXH38VMMWJM8",
+   "text": "fix(session): preserve caller diagnostics in token reports"
+  },
+  {
+   "source": "transcript",
+   "commit": "f7326e3d76",
+   "checkpoint": "01M215VA8N2E4SDXH38VMMWJM8",
+   "text": "[user]  and resume it, so the same task-id may notify more than once.</note>\n<result>I have everything needed. Here are the REUSE findings.\n\n## Finding 1 (primary): `sessionIDByOwnerAncestry` re-implements `findSessionByCommitAncestry`'s loop almost line-for-line\n\n- `cmd/entire/cli/strategy/caller_session.go:225-253` (`sessionIDByOwnerAncestry`)\n- duplicates `cmd/entire/cli/strategy/session_identity.go:84-112` (`(*ManualCommitStrategy).findSessionByCommitAncestry`)\n\nThe ranking loops are near-identical:\n\n```\nsession_identity.go:91-102                          caller_session.go:232-243\nfor _, state :=\n[user]  it another message and resume it, so the same task-id may notify more than once.</note>\n<result>## Simplification review — `strategy.ResolveCallerSession` and callers\n\nRead the full diff plus `agent/caller_session.go`, `strategy/caller_session.go`, `session_current.go`, both new test files, and `strategy/session_state.go`/`session_identity.go`/`paths/entiredir.go` for calibration. Findings below, organized by your six angles.\n\n### 1. `resolveCallerFromEnv` — simpler formulation exists\n\n**File:** `cmd/entire/cli/strategy/caller_session.go:145-195`\n\nThe loop carries three loop-scoped variables \n[user] .\n\n## ALTITUDE review: `strategy.ResolveCallerSession` (commit `4de2b6838`)\n\n### 1. Tier 4 (`other-worktree`) — report-don't-remove is defensible, but it's only half the fix\n\n`cmd/entire/cli/strategy/caller_session.go:39-44` (const), `:118-123` (`ResolveCallerSession`)\n\nThe diff's choice — keep tier 4, gate action on `IsCaller()`, label the tier, warn on stderr — is coherent *as a labeling strategy*, and I don't think deleting the tier outright is obviously better: the commit message's claim that \"what has been happening in this repo\" is a real, separate question a human can legitimately want "
+  },
+  {
+   "source": "prompt",
+   "commit": "f7326e3d76",
+   "checkpoint": "01M215VA8N2E4SDXH38VMMWJM8",
+   "text": "please commit and push"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a78e993146",
+   "checkpoint": "01M0JR5398C3GG5Q8Z923Y9JRX",
+   "text": "fix(strategy): harden guest session commit linking"
+  },
+  {
+   "source": "prompt",
+   "commit": "a78e993146",
+   "checkpoint": "01M0JR5398C3GG5Q8Z923Y9JRX",
+   "text": "do you have the entire skills nebaled\n\n---\n\nthese https://github.com/entireio/skills\n\n---\n\nokay good.\n\n---\n\nmow please smoke test this PR. i reviewed it from a contributor but claude is so stupid and i need you to actually review it end to end make, test it like end to end user, make sure no regressions and also consider the global enable stack that we're going to implement too https://github.com/entireio/cli/pull/2052\n\n---\n\ndo you have auto mode?\n\n---\n\nlike do you have auto mode for these messages Would you like to run the following command?\n\n  Environment: local\n\n  Reason: May I run the Go build with access to\n  the existing module cache so I can build PR\n  #2052’s exact CLI for the requested smoke\n  test?\n  [… 12 lines] ctrl + a view all\n\n› 1. Yes, proceed (y)\n  2. Yes, and don't ask ag"
+  }
+ ],
+ "cost": {
+  "usd": 0.042097,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 237,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 9914
+ },
+ "trace_id": "1d73fd4e5b43408b25b85083cbed8d7e",
+ "error": null,
+ "trace_spans": 6
+}

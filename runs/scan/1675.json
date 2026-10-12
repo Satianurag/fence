@@ -1,0 +1,98 @@
+{
+ "issue": 1675,
+ "title": "Copilot CLI generated hooks are bash-only and failed silently on Windows with WSL installed",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence concerns Codex Windows hook wrappers and worktree matching changes, but none of it shows a decision that Copilot CLI hooks should be bash-only or that exact-string worktree matching should stay across WSL/Windows path styles. The Copilot generator simply lacks a powershell key, and nobody chose that behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 1,
+  "symbols_named": 3,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_session.go",
+    217,
+    224,
+    "func:findSessionsForWorktree"
+   ],
+   [
+    "cmd/entire/cli/agent/hook_command.go",
+    163,
+    168,
+    "func:WrapWindowsProductionSilentHookCommand"
+   ]
+  ],
+  "lines": 14,
+  "lines_linked": 14,
+  "checkpoints": 4
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "54325302a4",
+   "checkpoint": "01KYANAB0TPCF5ZYYJW7HV4WM3",
+   "text": "fix(strategy): keep BaseCommit updates exact-match only on trailer-less commits\n\npostCommitUpdateBaseCommitOnly rewrites BaseCommit to the committing\nworktree's HEAD, which is only correct for sessions recorded in that\nworktree — a sibling session's HEAD didn't move, and rewriting its base\norphans its shadow branch (keyed by BaseCommit + WorktreeID). Route the\nno-trailer path through a new exact-match-only lookup so the sibling\nfallback never feeds base-commit mutation.\n\nThe trailer path keeps the fallback: a fallback trailer only exists\nbecause that session passed PrepareCommitMsg content validation."
+  },
+  {
+   "source": "transcript",
+   "commit": "54325302a4",
+   "checkpoint": "01KYANAB0TPCF5ZYYJW7HV4WM3",
+   "text": "[assistant] codex/agents/` files.\n\n**What issue #1852 reports:** commits made in a linked worktree get no `Entire-Checkpoint` trailer when the session started in a *different worktree of the same repo*, because `findSessionsForWorktree` matches `state.WorktreePath == worktreePath` by exact string equality. I verified that exact-match code is still on latest main at `cmd/entire/cli/strategy/manual_commit_session.go:160` — so the bug is real and unfixed.\n\n**The three related pieces of prior work:**\n\n1. **PR #1472 (merged 2026-06-30)** — `entire session adopt --from <path>`. Manual, per-session, and *moves* \n[assistant] and merge state BLOCKED**, so it needs work before it can land regardless.\n\n**What you'd still need from #1440 after merging #1777 — basically all of it:**\n\n- **The same-common-dir fallback match in `findSessionsForWorktree`.** This is the core fix, and it's worth noting that function has **five call sites** in `manual_commit_hooks.go` (prepare-commit-msg trailer, post-commit condensation, and three others) — so #1852's silent loss isn't just the trailer, it's condensation too. Fixing the match fixes all five at once; an adopt-based approach only patches the commit path.\n- **The parent-repo/`.\n[assistant] ll exists on the remote (`8dd3a0a04`).\n- I ran a dry-run merge (`git merge-tree`) against current main: **it merges cleanly, zero conflicts**, despite the ~6-week-old merge-base. The PR only touches `manual_commit_session.go` (+83) and one new test file (+250), so the footprint is small.\n- Reopening (vs. opening a fresh PR) preserves the PR history and the Bugbot review context, and per your convention you'd update it with a merge commit from main rather than rebasing.\n\nOne caveat: a clean *textual* merge doesn't guarantee semantic fit — a month of strategy changes landed (context params, sess"
+  },
+  {
+   "source": "prompt",
+   "commit": "54325302a4",
+   "checkpoint": "01KYANAB0TPCF5ZYYJW7HV4WM3",
+   "text": "its fine to nto comment\n\n---\n\nokay so you pusehd then\n\n---\n\ncan we take this out of draft and find the trail and ptu the trai llink back in the pr body and gave this synced too?\n\n---\n\ncan all the pr comments be resolved\n\n---\n\ni already did ti\n\n---\n\nokay i'll send in slakc, i'll say like 1440 - fixes where  active session is recorded against one worktree but commits happen from a sibling worktree in the same git repository.\n\n---\n\nhigh finding on trail, please see"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a4d1ec939b",
+   "checkpoint": "5ac1e71750f3",
+   "text": "Fix Codex Windows hook fallback"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f561bab649",
+   "checkpoint": "01M08FKKDDWMWQHK39XVX51B5H",
+   "text": "fix(strategy): address review findings on identity linking\n\nCritical fixes from the review pass:\n\n- Guest-linked condensation no longer touches the home worktree's shadow\n  state. The gate previously guarded only the BaseCommit assignment;\n  the shadow-branch delete mark, the remaining-files diff (home shadow\n  tree vs the FOREIGN commit tree), and carry-forward (which reads file\n  content from the committing — wrong — worktree) all still ran, so a\n  guest condensation would rebuild the home worktree's shadow branch\n  with the committing worktree's files and then delete it. A guest now\n  condenses the transcript, records the trailer state, and returns.\n\n- The \"none was linked, run 'entire session adopt'\" stderr hint fired\n  from inside the worktree matcher, BEFORE the identity union ran — the\n  exact scenario this PR exists for printed a false \"none was linked\"\n  (twice: prepare-commit-msg and post-commit) on a commit that got a\n  trailer moments later, and also appeared on amend and post-rewrite.\n  The matcher now returns an ambiguity flag; the hint lives in the\n  commit-linking path and fires only when the FINAL set is empty.\n\nHardening:\n\n- Negative-path diagnostics: unresolvable ancestry (record and commit\n  time) and all-shell chains each log at Debug — previously a host\n  where process introspection is blocked (hidepid, sandbox) had\n  identity linking silently dead forever with no trace.\n- isSessionHomeWorktree is a pure comparison on the hook's\n  already-resolved worktr"
+  },
+  {
+   "source": "transcript",
+   "commit": "f561bab649",
+   "checkpoint": "01M08FKKDDWMWQHK39XVX51B5H",
+   "text": "[assistant] ak will start failing — that's the guard working, but blast radius is unmeasured until the suite runs. Budget for a handful of test fixes.\n\n**Fix 2 — imported sessions never link.** One predicate in `manual_commit_session.go`'s matching (both `findSessionsForWorktree` and `findExactSessionsForWorktree`): skip `Kind.IsImported()`. Important scope correction from my earlier list: **do not exclude `ended`** — \"agent exits, user reviews, user commits\" is a mainstream flow where the ended session *must* link; only imports are historical-by-construction. Unit test: an imported session in the exact w\n[assistant] ting my own split: it was hygiene-vs-cause as *concepts*, but your recorded PR-splitting principle is split by **file overlap**, not concept — and these overlap almost completely. Fixes 2 and 4 edit `findSessionsForWorktree` in `manual_commit_session.go`; PR B's fallback tier *is* that same function — the identity match slots in above it, in the same call sites. Shipping them separately means PR B immediately rewrites the code PR A just touched. That's one behavior change — \"how a commit finds its session: identity first, hygienic worktree matching as fallback\" — and it reviews better as one c\n[user] io/cli/.worktrees/session-identity/`.\n\n---\n\n## 1. BUG (HIGH) — \"none was linked\" printed to stderr even when the commit IS linked, and printed twice per commit\n\n**Location:** `cmd/entire/cli/strategy/manual_commit_session.go:283-285` (`resolveWorktreeCandidates`) interacting with `cmd/entire/cli/strategy/session_identity.go:35-44` (`findSessionsForCommitLinking`)\n\n`findSessionsForCommitLinking` calls `findSessionsForWorktree` **first**, and on multi-worktree ambiguity that path unconditionally prints:\n\n```\n[entire] Agent sessions in several other worktrees could match this commit; none was lin"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f6cc141f86",
+   "checkpoint": "01KYT9Q8M0PSEMNWTVW5VPRRB1",
+   "text": "fix: scope Windows hook shell handling"
+  },
+  {
+   "source": "prompt",
+   "commit": "f6cc141f86",
+   "checkpoint": "01KYT9Q8M0PSEMNWTVW5VPRRB1",
+   "text": "yes you can try, but can we try to implement the fix, test before commiting?\n\n---\n\nwhy did gate risk basically go from 10 to 40\n\n---\n\nhow did it change becaues your intial fix was causing test failures and now the risk is up\n\n---\n\nhow do you know this hook fix is actulaly right then and needed? why wasn't it caught before\n\n---\n\nokay well we can;t do this bceause i don't have a windows machine and is this codex only?\n\n---\n\nokay do this then"
+  }
+ ],
+ "cost": {
+  "usd": 0.022149,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 147,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 5152
+ },
+ "trace_id": "48afdee024fa5785e10e74c84ab6ea09",
+ "error": null,
+ "trace_spans": 6
+}

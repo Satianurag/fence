@@ -1,0 +1,80 @@
+{
+ "issue": 2063,
+ "title": "Subagent transcripts skip image externalization before size cap / redaction",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.6,
+  "rationale": "The evidence covers the sanitize/size-cap ordering in prepareSubagentTranscript, but nothing mentions image externalization being deliberately omitted for subagent transcripts. The omission appears to be a gap, not a chosen behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 2,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/checkpoint/subagent_transcript.go",
+    34,
+    51,
+    "func:prepareSubagentTranscript"
+   ]
+  ],
+  "lines": 18,
+  "lines_linked": 18,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "00f56be024",
+   "checkpoint": "01KZTZTNVMJ95J2KC9Q04D5DH4",
+   "text": "fix(checkpoint): measure the sanitized subagent transcript against the cap\n\nTrail finding 019ff2bc: the size guard compared the raw byte count to\nMaxChunkSize before sanitizing, so a Codex rollout that is oversized only because\nof encrypted_content — up to ~20% of a rollout's bytes, per the measurement in\nthe same doc comment — was dropped entirely even though what would actually be\nstored fits comfortably. The finding is right, and it contradicted the rationale\nwritten two lines above the check.\n\nSanitize first, then measure what would be stored. Sanitizing costs ~8ms/MB\nagainst the ~220ms/MB redaction this guard exists to bound, so paying it before\nthe decision is cheap even when the answer is still \"skip\". The warning now logs\nboth sizes, so a genuine skip shows how much of it survived sanitizing.\n\nTestPrepareSubagentTranscript_MeasuresSanitizedSize covers it with a rollout\nwhose ciphertext alone pushes it past the cap; verified RED against the old\nordering (\"a rollout that fits once encrypted_content is stripped must not be\ndropped\")."
+  },
+  {
+   "source": "transcript",
+   "commit": "00f56be024",
+   "checkpoint": "01KZTZTNVMJ95J2KC9Q04D5DH4",
+   "text": "[assistant] pen:\n\n| Sev | Location | Status |\n|---|---|---|\n| High | `codex/hooks.go:238-239` — `UninstallHooks` wipes subagent hooks | **STALE** — fixed in `59af5153a8`; filed against `bc40d4e152` |\n| Medium | `subagent_transcript.go:34` — size guard measures pre-sanitize bytes | **Valid, unfixed** |\n\nCursor's only inline PR comment is the same stale `UninstallHooks` one. Copilot re-reviewed with nothing new.\n\nInteresting note on the gate arithmetic: it says \"1 unresolved\" while the trail lists 2, so it's presumably counting only the High. Either way, the merge is currently blocked by a finding I already\n[assistant] That's a deliberate, well-documented design decision, not a bug. Let's check the `subagent_transcript.go` sanitize/redact pipeline order interaction with the size cap edge case, and double check `ephemeral.go`'s unconditional call more carefully for correctness with `readErr`."
+  },
+  {
+   "source": "prompt",
+   "commit": "00f56be024",
+   "checkpoint": "01KZTZTNVMJ95J2KC9Q04D5DH4",
+   "text": "1935 mentions that the logs are now captured, are they really? like in the shadow branch but in actual checkpoints?\n\n---\n\ndid you update pr description and also the trail description\n\n---\n\ncan you run simplify on each of the 3 PRs\n\n---\n\n<task-notification>\n<task-id>ad2ea9e15f0b96f86</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments-2/f12d4d56-00f1-45df-a94c-6a3cf2714244/tasks/ad2ea9e15f0b96f86.output</output-file>\n<status>completed</status>\n<summary>Agent \"Altitude review of PR1 diff\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<"
+  },
+  {
+   "source": "commit_message",
+   "commit": "0e1a2c3b25",
+   "checkpoint": "01KZSBER9FPC2EK74BT8N5R47T",
+   "text": "refactor(codex): fix the hook-layer damage the review found, and sanitize before redacting\n\nFour review passes on the previous commit. Three findings would have shipped real\ndamage, and one of my \"fixes\" was a no-op with a confident comment.\n\nAreHooksInstalled: reverted to the 4-hook check. Requiring the grown set there\nanswered the wrong question — agent.HookSupport documents it as \"is Entire wired up\nhere at all?\", with drift being a separate question. Requiring 6 dropped Codex from\n`entire status` and DetectPresence for every repo enabled before this release, and —\nworst — made `entire agent remove codex` print \"not installed\" and return without\nuninstalling, leaving a partially-installed repo un-removable through the documented\ncommand.\n\nThe right layer was 30 lines away and untouched: trust.go's MissingEntireHooks,\nwhose doc comment already says it \"surfaces drift when the user enabled Codex on an\nolder release and the install set has since grown\". It now covers both new events,\nso doctor reports them and points at `entire enable`.\n\nMore serious, same file: declaredCodexEvents also still listed five events, and it\nfeeds HookTrustGaps. Codex refuses to run hooks without a trusted_hash entry (the\ne2e harness pre-trusts them for exactly this reason), so after `entire enable` the\ntwo new hooks would sit Untrusted and never fire, while `entire doctor` reported\ntrust OK and the session-start warning stayed quiet. The feature would have shipped\nsilently inert. Both events are n"
+  },
+  {
+   "source": "transcript",
+   "commit": "0e1a2c3b25",
+   "checkpoint": "01KZSBER9FPC2EK74BT8N5R47T",
+   "text": "[assistant] on strips `encrypted_content` blobs that the function's own doc comment says can be up to 20% of file bytes, so a rollout that is oversized pre-sanitize but would fit comfortably after stripping is dropped entirely (checkpoint stored without the subagent transcript) even though the documented rationale (\\\"sanitize-before-redact\\\") argues for measuring against the post-sanitize size. Consider sanitizing first and checking the size of the sanitized output instead of the raw bytes.\",\"location\":{\"granularity\":\"line\",\"file_path\":\"cmd/entire/cli/checkpoint/subagent_transcript.go\",\"start_line\":34}}]}"
+  },
+  {
+   "source": "prompt",
+   "commit": "0e1a2c3b25",
+   "checkpoint": "01KZSBER9FPC2EK74BT8N5R47T",
+   "text": "1935 mentions that the logs are now captured, are they really? like in the shadow branch but in actual checkpoints?\n\n---\n\ndid you update pr description and also the trail description\n\n---\n\ncan you run simplify on each of the 3 PRs\n\n---\n\n<task-notification>\n<task-id>ad2ea9e15f0b96f86</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments-2/f12d4d56-00f1-45df-a94c-6a3cf2714244/tasks/ad2ea9e15f0b96f86.output</output-file>\n<status>completed</status>\n<summary>Agent \"Altitude review of PR1 diff\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<"
+  }
+ ],
+ "cost": {
+  "usd": 0.015535,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 116,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 3576
+ },
+ "trace_id": "a0d42b21b166648c2d865712c5cb87ca",
+ "error": null,
+ "trace_spans": 6
+}

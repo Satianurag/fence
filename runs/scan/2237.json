@@ -1,0 +1,184 @@
+{
+ "issue": 2237,
+ "title": "Re-install discards another tool's newer hook and chains to a stale .pre-entire backup",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The evidence for the blamed code (EnsureSetup move, absolute hook path, local_dev removal) never discusses discarding a foreign hook when a backup already exists. A later commit explicitly treats this exact behaviour as a bug: 'install wrote Entire's hook over it and the newer hook was lost.'",
+  "quotes": [
+   {
+    "evidence_id": 4,
+    "source": "commit_message",
+    "commit": "3c4241bed8",
+    "checkpoint": "01M476BPYFTWKW40117J2293JT",
+    "quote": "install wrote Entire's hook over it and the newer hook was lost."
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 1,
+  "symbols_named": 3,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/common.go",
+    95,
+    120,
+    "func:EnsureSetup"
+   ],
+   [
+    "cmd/entire/cli/strategy/hooks.go",
+    692,
+    744,
+    "func:InstallGitHook"
+   ]
+  ],
+  "lines": 79,
+  "lines_linked": 57,
+  "checkpoints": 15
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "53500cc34e",
+   "checkpoint": "9257c9f8b2a3",
+   "text": "delete auto-commit strat"
+  },
+  {
+   "source": "transcript",
+   "commit": "53500cc34e",
+   "checkpoint": "9257c9f8b2a3",
+   "text": "[user] `\n- `.gemini/agents/reviewer.md`\n\n**Issue Template**:\n- `.github/ISSUE_TEMPLATE/bug_report.yml` (update if strategy field needs changing)\n\n### Strategy Package Shared Code\n\n**`cmd/entire/cli/strategy/common.go`**\n- Review for auto-commit specific code (likely none, but verify)\n\n**`cmd/entire/cli/strategy/push_common.go`**\n- Review shared PrePush logic (likely unchanged, as manual-commit also pushes metadata)\n\n**`cmd/entire/cli/strategy/session.go`**\n- Review for auto-commit specific types or logic\n\n**`cmd/entire/cli/checkpoint/checkpoint.go`**\n- Review types (CommittedCheckpoint still needed f\n[assistant] Hmm, the changes to `common.go` add `StrategyNameManualCommit` and `EnsureSetup()`. The `EnsureSetup()` function was probably moved from somewhere else. Let me check what was in `manual_commit.go` and `registry.go` before.\n[assistant] I see! `EnsureSetup()` was moved from being a method on `ManualCommitStrategy` (implementing the `Strategy` interface) to a standalone function in `common.go`. And `Strategy` interface had `EnsureSetup()` removed.\n\nNow, the `ManualCommitStrategy` no longer has an `EnsureSetup()` method, but `strategy.EnsureSetup()` exists as a package-level function. The callers in `setup.go` use `strategy.EnsureSetup()` which now calls the standalone function. This should work.\n\nBut let me check if there's something in the resume path that uses the strategy interface's `EnsureSetup()`. Let me also look at the"
+  },
+  {
+   "source": "prompt",
+   "commit": "53500cc34e",
+   "checkpoint": "9257c9f8b2a3",
+   "text": "Implement the following plan:\n\n# Remove Auto-Commit Strategy\n\n## Context\n\nThe auto-commit strategy is no longer needed and should be removed from the codebase. Manual-commit is already the default strategy and provides all necessary functionality. Removing auto-commit will simplify the codebase by:\n\n- Eliminating 2,500+ lines of implementation and test code\n- Reducing maintenance burden for a strategy that's not being used\n- Simplifying documentation and user guidance\n- Removing complexity from the strategy system\n\nManual-commit is already the default and will remain as the only strategy after this change.\n\n## Migration Strategy for Existing Users\n\nUsers who have `\"strategy\": \"auto-commit\"` in their settings files need to be automatically migrated to manual-commit. The migration should:\n\n1"
+  },
+  {
+   "source": "commit_message",
+   "commit": "3c4241bed8",
+   "checkpoint": "01M476BPYFTWKW40117J2293JT",
+   "text": "hooks: never lose a hook when a backup already exists\n\nWhen a hook that isn't Entire's sits at a hook path and <hook>.pre-entire\nalready exists (a hook manager reinstalled, the user edited it, a checkout\nrestored it), install wrote Entire's hook over it and the newer hook was lost.\n\nNow the current hook becomes the backup and the previous backup is kept as\n<hook>.pre-entire.<timestamp>, unless an identical older copy exists. Backups\nare made by hard link (or copy where links are unsupported), never by moving\nthe hook away, so the hook path always holds a runnable hook and a crash at any\nstep leaves every version on disk. Installs and removals take a lock in the git\ncommon dir, bounded to a second. Entire never chains to a backup that carries\nits own marker, which would make the hook call itself."
+  },
+  {
+   "source": "transcript",
+   "commit": "3c4241bed8",
+   "checkpoint": "01M476BPYFTWKW40117J2293JT",
+   "text": "[user]  refer to the worktree `/Users/peytonmontei/dev/entire/devenv/entireio/cli/.worktrees/enable-existing-hooks`.\n  \n  **Where the lines go:**\n  - Production code: about 420 lines (`hook_backup.go` 278, `hooks.go` +110, `setup.go` +18).\n  - Docs: 25 lines.\n  - Tests: about 616 lines (`hook_backup_test.go` 319, `hook_precommit_test.go` 248, `hooks_test.go` +49).\n  \n  **Bottom line:** the reported issue is a messaging and docs fix of about 40 lines. Roughly 95% of the diff fixes a different bug (the \"found while reproducing\" one) and then hardens that fix.\n  \n  ### 1. Minimum fix, and what is beyond\n[user] the SelfBackup guard. The lock only covers Entire processes that take it, within one git common dir. Two cases bypass it:\n     - Mixed binaries during an upgrade, where an older `entire` on PATH runs EnsureSetup with no lock.\n     - A shared global `core.hooksPath` across repos, where each repo has its own common-dir lock.\n  \n     In rotation step 2, `Link(<hook>, tmp)` can then capture a `<hook>` that another installer has just replaced with Entire's hook. The rename puts Entire's chained hook at `.pre-entire`. The chain block (`hooks.go:875-880` on main) then calls `.pre-entire`, which calls\n[user] ` can still race. That is acceptable; document it.\n  5. **Hot path: no change needed, and it's cheap.**\n     - A wrapper at `<hook>` has no marker, so `gitHookStateInHooksDir` already returns Absent (hooks.go:522-525 on main), and EnsureSetup calls InstallGitHook.\n     - After a reclaim, `<hook>` is Entire's, so the state reads Current.\n     - Put the reclaim check inside InstallGitHook, under the lock, before A's generic path. The read path stays lock-free.\n  \n  ### Should-fix\n  - **Tighten wrapper detection.** It should also require `--hook-type=<this hook>` and `--hook-dir`.\n    - Without `"
+  },
+  {
+   "source": "prompt",
+   "commit": "3c4241bed8",
+   "checkpoint": "01M476BPYFTWKW40117J2293JT",
+   "text": "can you find the other session on this branch and resume?\n\n---\n\nwhy would we need another pr?\n\n---\n\nwhat about the other two?\n\n---\n\ni know they dont need a new PR and this isn't the right conversation i wanted to resume in this worktree. the one i wanted to resume was traiging a lot of tickets\n\n---\n\ni know they dont need a new PR and this isn't the right conversation i wanted to resume in this worktree. the one i wanted to resume was traiging a lot of tickets, and last thing that was done was an adversarial review on all of them\n\n---\n\nit was in this herdr space and had to do with these, https://claude.ai/artifact/Fg5eGAHLYVeif5CGgybDTJ?sk=kI2tN1JY8uURLxyUsV7M8Q the last pr was the husky v9 fix\n\n---\n\nfor 1. are you saying if someone else has a pre commit wrapper, leave it, and treat hooks a"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b4e51aa754",
+   "checkpoint": "01M1PG9XDSAJ46T4Z7WCCC7GCT",
+   "text": "fix(hooks): confine git hook installation to a rooted hooks directory\n\nThe active hooks directory was the last tree Entire wrote to with bare\nos.ReadFile/os.WriteFile on a joined path. A symlink at a hook path was\ntherefore read through and then written through: the 0o755 os.WriteFile\ntruncated whatever the link named and replaced it with a shell script.\n\nAnchor a root at git's own `--git-path hooks` answer, refusing a symlink at\nthe directory itself; route the four hook reads through\nosroot.ReadFileNoFollow; and replace the write with\njsonutil.WriteFileAtomicIn, whose rename replaces a leaf link instead of\nfollowing it. osroot.OpenFileNoFollow is deliberately not used for the\nwrite: it rejects O_TRUNC by design, precisely to push truncating writes\nonto an atomic rename.\n\nThe hooks directory needs its own anchor rather than an existing one\nbecause core.hooksPath can name any directory, inside the worktree or well\noutside it, so allowedRootBases gains an entry with that reason.\n\nA symlinked hook is now classified as foreign rather than as absent, so it\nis backed up to <hook>.pre-entire and chained to exactly as a foreign\nscript is. Refusing to read through someone's link must not mean silently\ndiscarding it, and the rename preserves the link itself as the backup.\n\ndoctor grows checkGitHookSymlinks, reporting a symlinked hooks directory\n(which stops installation, and is otherwise invisible: every other command\njust reports the hooks absent) and a symlinked hook file (which is n"
+  },
+  {
+   "source": "transcript",
+   "commit": "b4e51aa754",
+   "checkpoint": "01M1PG9XDSAJ46T4Z7WCCC7GCT",
+   "text": "[user] NoFollow; replace the 0755 write with jsonutil.WriteFileAtomicIn, which renames over a leaf link instead of writing through it. Two traps called out: TestRootBasesAreTrusted will fail the build until hooks.go is added to allowedRootBases, and osroot.OpenFileNoFollow is the wrong tool here because it rejects O_TRUNC by design. Plus a checkGitHookSymlinks in doctor — it needs its own function rather than an agentSymlinkCheckPaths entry, since core.hooksPath can point outside the worktree.\n\n2 — Gate the summary provider (an hour). Wrap the discoverNamedSummaryProvider call at explain_summary_prov\n[user] NoFollow; replace the 0755 write with jsonutil.WriteFileAtomicIn, which renames over a leaf link instead of writing through it. Two traps called out: TestRootBasesAreTrusted will fail the build until hooks.go is added to allowedRootBases, and osroot.OpenFileNoFollow is the wrong tool here because it rejects O_TRUNC by design. Plus a checkGitHookSymlinks in doctor — it needs its own function rather than an agentSymlinkCheckPaths entry, since core.hooksPath can point outside the worktree.\n\n2 — Gate the summary provider (an hour). Wrap the discoverNamedSummaryProvider call at explain_summary_prov\n[assistant] Now implementing item 1. Starting with `hooks.go`:"
+  },
+  {
+   "source": "prompt",
+   "commit": "b4e51aa754",
+   "checkpoint": "01M1PG9XDSAJ46T4Z7WCCC7GCT",
+   "text": "1 — Confine the git-hook surface (half a day). Lstat-and-refuse a symlinked hooks directory; anchor osroot.Shared(hooksDir) after the existing MkdirAll (which stays a plain os call — creating a directory is an operation from outside it); route the four reads through ReadFileNoFollow; replace the 0755 write with jsonutil.WriteFileAtomicIn, which renames over a leaf link instead of writing through it. Two traps called out: TestRootBasesAreTrusted will fail the build until hooks.go is added to allowedRootBases, and osroot.OpenFileNoFollow is the wrong tool here because it rejects O_TRUNC by design. Plus a checkGitHookSymlinks in doctor — it needs its own function rather than an agentSymlinkCheckPaths entry, since core.hooksPath can point outside the worktree.\n\n2 — Gate the summary provider (a"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a7916830d0",
+   "checkpoint": "5ce40f70db17",
+   "text": "Optimize config loading for Vercel."
+  },
+  {
+   "source": "prompt",
+   "commit": "a7916830d0",
+   "checkpoint": "5ce40f70db17",
+   "text": "commit/push\n\n---\n\nNext one:\n2. maybeMergeVercelConfig runs on every WriteCommitted and UpdateCommitted call\n\n  This reads settings from disk and checks the metadata tree on every checkpoint write, even when nothing has changed. The early-exit when content matches\n  (string(output) == existingContents) mitigates the cost, but there's still filesystem I/O + tree traversal per call. Consider caching or only running this on\n  branch initialization.\n\n---\n\nMove the self-heal path\n\n---\n\nRemove the LoadFromRepoRoot method. Instead, add a cached settings instance to vercelconfig.go and initialize it with ctx at the right moment in the lifecycle, loading it from the existing Load method in settings.go.\n\n---\n\nNo, not what I wanted. Do not change the signature of EnsureMetadataBranch.\n\n---\n\nNo, not wh"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b10dfb85b9",
+   "checkpoint": "2a29469db94c",
+   "text": "more informative output depending on state when enabling"
+  },
+  {
+   "source": "transcript",
+   "commit": "b10dfb85b9",
+   "checkpoint": "2a29469db94c",
+   "text": "[assistant]  performed:\n\n1. Setup Claude Code hooks (`setupClaudeCodeHook`)\n2. Setup .entire directory (`setupEntireDirectory`)\n3. Save settings (either local or project settings)\n4. Install git hooks (`strategy.InstallGitHook`)\n5. Let strategy handle its own setup (`strat.EnsureSetup()`)\n\nCurrently, it only shows a single \"✓ Enabled (strategy)\" message at the end. The user wants each step to have a checkmark shown as it completes.\n\nHere's my proposal for improving the output:\n\n```\n✓ Claude Code hooks installed\n✓ .entire directory created\n✓ Settings saved\n✓ Git hooks installed\n✓ Strategy setup complete\n\n✓\n[assistant] e enable command performs these steps:\n\n1. Setup Claude Code hooks (`setupClaudeCodeHook`)\n2. Setup .entire directory (`setupEntireDirectory`)\n3. Save settings to file\n4. Install git hooks (`strategy.InstallGitHook`)\n5. Strategy-specific setup (`strat.EnsureSetup()`)\n\nCurrently it only shows `✓ Enabled (manual-commit)` at the end. \n\n**Proposed change:**\n\n```\n✓ Claude Code hooks installed\n✓ .entire directory created\n✓ Settings saved\n✓ Git hooks installed\n✓ Strategy initialized\n\n✓ Enabled (manual-commit)\n```\n\nThe approach would be to add print statements after each step succeeds. This provides b\n[assistant] The user wants the same \"verified\" vs \"installed\" treatment for git hooks. Let me check the `strategy.InstallGitHook` function to see if it returns information about whether hooks were installed or already existed.\n[assistant] Let me check if `strategy.InstallGitHook` returns information about whether hooks were installed:\n[assistant] I see that `InstallGitHook` calls `writeHookFile` for each hook. Let me check that function to see if it tracks whether something was actually written:"
+  },
+  {
+   "source": "prompt",
+   "commit": "b10dfb85b9",
+   "checkpoint": "2a29469db94c",
+   "text": "when running: \n❯ entire enable\n\n✓ Enabled (manual-commit)\n\nI'd like us to show more what else is setup. Like for each step there should be a check mark listed. Can you take a look and propose change?\n\n---\n\nInstead of \"Strategy initialized\" we should do \"<strategy name> strategy initialized\" and remove \"(manual-commit)\" from \"Enabled\"\n\n---\n\nnow when I rerun `entire enable` and there is already a `.entire/settings.json` we default to updating `.entire/settings.local.json`. I'd like to change this so it's more interactive. If there is a settings.json already we ask if it should be updated, or if local settings should be used instead.\n\n---\n\ngoing back to the changes before: when I rerun `entire enable` it says again \"✓ Claude Code hooks installed\" and\n\"✓ .entire directory created\" is there a w"
+  },
+  {
+   "source": "commit_message",
+   "commit": "4a08b56738",
+   "checkpoint": "43cdf4753c06",
+   "text": "add --abolute-git-hook-path to entire enable, this will setup your hooks with absolute paths to the entire binary"
+  },
+  {
+   "source": "transcript",
+   "commit": "4a08b56738",
+   "checkpoint": "43cdf4753c06",
+   "text": "[user] go`**\n- Add `absoluteHookPath` bool flag to `newEnableCmd()`\n- Pass it through `runEnableInteractive()` and `setupAgentHooksNonInteractive()`\n- Save to `settings.AbsoluteHookPath`\n- Pass to `strategy.InstallGitHook()` (new parameter)\n\n### 3. Update hook generation to support absolute paths\n\n**`cmd/entire/cli/strategy/hooks.go`**\n- Update `hookCmdPrefix(localDev bool)` → `hookCmdPrefix(localDev, absolutePath bool)`\n- When `absolutePath` is true: resolve via `os.Executable()` + `filepath.EvalSymlinks()`, fall back to `\"entire\"` on error\n- Update `InstallGitHook(silent, localDev bool)` → `Install\n[assistant] ings** (`settings/settings.go`):\n- Added `AbsoluteHookPath bool` field to `EntireSettings` struct\n- Added merge logic in `mergeJSON()` for the `absolute_hook_path` key\n\n**Hook generation** (`strategy/hooks.go`):\n- `hookCmdPrefix(localDev bool)` → `hookCmdPrefix(localDev, absolutePath bool)` — when `absolutePath` is true, resolves via `os.Executable()` + `filepath.EvalSymlinks()`, falls back to `\"entire\"` on error\n- `InstallGitHook(silent, localDev bool)` → `InstallGitHook(silent, localDev, absolutePath bool)`\n- Added `isAbsoluteHookPath()` helper (reads from settings)\n\n**Hook managers** (`stra\n[user] ented:\n   - Added `AbsoluteHookPath` field to `EntireSettings` struct\n   - Added merge logic in `mergeJSON()`\n   - Updated `hookCmdPrefix()` signature to accept `absolutePath` parameter\n   - Updated `InstallGitHook()` signature\n   - Added `isAbsoluteHookPath()` helper\n   - Updated `CheckAndWarnHookManagers()` signature\n   - Updated `EnsureSetup()` in common.go\n   - Added `--absolute-hook-path` flag to `newEnableCmd()`\n   - Passed through `runEnableInteractive()` and `setupAgentHooksNonInteractive()`\n   - Updated all test call sites\n   - Added `TestInstallGitHook_AbsoluteHookPath` test\n\n3. **Er"
+  },
+  {
+   "source": "prompt",
+   "commit": "4a08b56738",
+   "checkpoint": "43cdf4753c06",
+   "text": "Implement the following plan:\n\n# Fix: Git hooks fail in GUI clients (Issue #489)\n\n## Context\n\nGit hooks installed by `entire enable` use bare `entire` command. GUI git clients (Xcode, Tower, etc.) don't source shell profiles, so `entire` isn't on PATH and hooks fail with `command not found`. The fix adds an opt-in `--absolute-hook-path` flag that embeds the full binary path in git hooks.\n\n## Changes\n\n### 1. Add `AbsoluteHookPath` setting\n\n**`cmd/entire/cli/settings/settings.go`**\n- Add `AbsoluteHookPath bool` field to `EntireSettings` struct (`json:\"absolute_hook_path,omitempty\"`)\n- Add merge logic in `mergeJSON()` (same pattern as `local_dev`)\n\n### 2. Add `--absolute-hook-path` flag to `entire enable`\n\n**`cmd/entire/cli/setup.go`**\n- Add `absoluteHookPath` bool flag to `newEnableCmd()`\n- "
+  },
+  {
+   "source": "commit_message",
+   "commit": "a9a676e795",
+   "checkpoint": "01M00A6KK7GC43YE6DT3WX5FWN",
+   "text": "refactor(hooks)!: remove local_dev mode\n\nLocal-dev mode pointed installed hooks at `scripts/entire-dev`, a launcher\ninside the working tree that compiled and ran the checked-out source. It was\nread from the *committed* `.entire/settings.json` (settings.go merged\n`local_dev` from the project scope, and strategy/common.go regenerated the git\nhook from it), so any repository could commit `\"local_dev\": true` and have\n`entire enable` install hooks that execute that repository's own code. A branch\ncheckout could then swap what ran. This repo shipped exactly that: `local_dev:\ntrue` was tracked, and all six committed agent configs invoked the launcher.\n\nHooks now always name the `entire` binary. Removed the `--local-dev` flags\n(including the non-hidden one on `entire agent add`), `EnableOptions.LocalDev`,\nthe `localDev` parameter from `Agent.InstallHooks` across all nine agents and\nthe external-agent protocol, the claude-code local-dev SessionEnd timeout, and\nthe launcher script.\n\n`EntireSettings.LocalDev` stays as a documented no-op: the loaders use\nDisallowUnknownFields, so deleting the field would make every existing settings\nfile containing `local_dev` a hard parse error. It is not merged from overrides\nand nothing reads it, matching the `Strategy` precedent.\n\nRemoving the feature is not enough to disarm existing installs, so this also\nfixes how hooks written by older versions get replaced:\n\n- `isGitHookInstalledInHooksDir` only looked for the Entire marker, which a\n  legacy hook"
+  },
+  {
+   "source": "transcript",
+   "commit": "a9a676e795",
+   "checkpoint": "01M00A6KK7GC43YE6DT3WX5FWN",
+   "text": "[assistant] go:449`). So any repo can commit `local_dev: true`; a victim who clones it and runs `entire enable` gets git hooks and agent hooks that execute `./scripts/entire-dev` from that repo. Worse, `strategy/common.go:111` re-installs the git hook from merged settings on its own, so the committed value keeps regenerating the dev hook without anyone passing a flag.\n\n**2. Two exposures are tangled here, and only one is a bug.**\n- *Repo-controlled activation* — a tracked file decides that hooks execute repo content. That's the security bug, and it has nothing to do with dogfooding.\n- *Working-tree execut\n[assistant] | file | tracked? | branch checkout can swap it? |\n|---|---|---|---|\n| git hooks | `.git/hooks/*` (`GetHooksDir`) | no — inside `.git/` | **no** |\n| agent hooks | `.claude/settings.json` (`claudecode/hooks.go:103`) | **yes, in this repo** | **yes** |\n\n- **Git hooks are already in the safe place** and already have the strongest available form: `--absolute-git-hook-path` inlines a shell-quoted absolute path at install time (`hooks.go:468-490`) with *no runtime config lookup* — the script literally contains `/Users/soph/…/entire hooks …`. Nothing in the repo can redirect it.\n- **Agent hooks are u\n[user] tion to you.]\n\nCleaned up my scratch verification files; the working tree is back to just the change under review.\n\n## Altitude review — findings, most valuable first\n\n### 1. `cmd/entire/cli/strategy/common.go:110` — the migration never happens, and stale git hooks now break `git push`\n`EnsureSetup` (runs on every turn-start, `lifecycle.go:573`) only reinstalls when `!IsGitHookInstalled(ctx)`, and `isGitHookInstalledInHooksDir` (`strategy/hooks.go:156-168`) checks **only for `entireHookMarker`** — a legacy `./scripts/entire-dev hooks git …` hook has the marker, so it counts as installed foreve"
+  },
+  {
+   "source": "commit_message",
+   "commit": "2ad6d9fe90",
+   "checkpoint": "01M4EX7ADWY1Y94M78719GHNQM",
+   "text": "hooks: install without the lock when it cannot be used, as uninstall does\n\nInstall runs on enable and at every agent turn, and needed no per-user\ndirectory before the hooks lock existed. A lock directory or lock file that\ncannot be used is now warned about and skipped instead of failing the\ninstall; a lock another Entire process holds still stops it. The pre-commit\nreclaim message goes through stderrWriter like the other hook messages."
+  },
+  {
+   "source": "transcript",
+   "commit": "2ad6d9fe90",
+   "checkpoint": "01M4EX7ADWY1Y94M78719GHNQM",
+   "text": "[user] , plus three new trail findings that came in while I worked. Nothing is open now, and I didn't merge.\n\n**Commits** on `fix/hook-backup-overwrite`, all in `cmd/entire/cli/strategy/`:\n- **eeef6e18e:** `hooks.go`, `hook_backup.go`, `hook_backup_test.go`. Adds 112 lines and removes 3.\n- **34700510a:** the same three files. Adds 72 lines and removes 18.\n- **The PR is now +1243/−35.** It was +1069/−24, so the two commits added 174 lines and removed 11, about half of it tests.\n\n**Codex findings:**\n1. **Hook replaced between backup and write: real, fixed.** Just before the write, the install now check\n[user] se they only apply if 1492 or 1468 merges first. I pushed one commit, **e56ebc4b3**, to `fix/enable-existing-hooks`. Nothing was merged or force-pushed.\n\n**Files changed:**\n- `cmd/entire/cli/strategy/hooks.go`\n- `cmd/entire/cli/setup.go`\n- `README.md`\n- `cmd/entire/cli/strategy/hooks_test.go`\n- `cmd/entire/cli/uninstall_output_test.go`\n\nThe commit adds 99 lines and removes 8. The PR is now +154/−23, up from +58/−18; most of the growth is tests.\n\n**Per finding:**\n- **01M4B3EQC4CA (Low, install message lists four hooks): fixed.** The install success line now includes post-rewrite. The uninstall \n[user] may notify more than once.</note>\n<result>All four findings on trail 1492 were real. They're fixed in one commit, dbe0b8653, pushed to `fix/hook-backup-overwrite`. It touches `cmd/entire/cli/strategy/hooks.go`, `hook_backup.go` and `hook_backup_test.go`, adding 165 lines and removing 13. PR #2670 is now +1395/−35.\n\n**01M4BYBJH9E3 (Medium): another hook manager over Entire loops forever.**\n- **Cause:** a tool that moves Entire's hook aside and runs it from its own wrapper caused an endless Entire → wrapper → Entire loop. The new test reproduced it: on the old code the hook ran until the 10s tim"
+  }
+ ],
+ "cost": {
+  "usd": 0.048821,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 175,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 11750
+ },
+ "trace_id": "0b31dce31b503c1bbba27f0eb8db8f03",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,176 @@
+{
+ "issue": 2410,
+ "title": "`entire enable --force` writes the hook wrapper through a symlink, clobbering the target file and creating a self-chaining hook",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "Evidence shows the write-through-symlink behaviour was previously identified as a bug and fixed with atomic rename, and the later backup-exists commit says the hook path should always hold a runnable hook. Nothing shows writing through a symlink onto a self-chaining hook was chosen; the reported behaviour is an unintended gap in the version the reporter ran.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 4,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/hooks.go",
+    692,
+    744,
+    "func:InstallGitHook"
+   ]
+  ],
+  "lines": 53,
+  "lines_linked": 35,
+  "checkpoints": 9
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "3c4241bed8",
+   "checkpoint": "01M476BPYFTWKW40117J2293JT",
+   "text": "hooks: never lose a hook when a backup already exists\n\nWhen a hook that isn't Entire's sits at a hook path and <hook>.pre-entire\nalready exists (a hook manager reinstalled, the user edited it, a checkout\nrestored it), install wrote Entire's hook over it and the newer hook was lost.\n\nNow the current hook becomes the backup and the previous backup is kept as\n<hook>.pre-entire.<timestamp>, unless an identical older copy exists. Backups\nare made by hard link (or copy where links are unsupported), never by moving\nthe hook away, so the hook path always holds a runnable hook and a crash at any\nstep leaves every version on disk. Installs and removals take a lock in the git\ncommon dir, bounded to a second. Entire never chains to a backup that carries\nits own marker, which would make the hook call itself."
+  },
+  {
+   "source": "transcript",
+   "commit": "3c4241bed8",
+   "checkpoint": "01M476BPYFTWKW40117J2293JT",
+   "text": "[user]  refer to the worktree `/Users/peytonmontei/dev/entire/devenv/entireio/cli/.worktrees/enable-existing-hooks`.\n  \n  **Where the lines go:**\n  - Production code: about 420 lines (`hook_backup.go` 278, `hooks.go` +110, `setup.go` +18).\n  - Docs: 25 lines.\n  - Tests: about 616 lines (`hook_backup_test.go` 319, `hook_precommit_test.go` 248, `hooks_test.go` +49).\n  \n  **Bottom line:** the reported issue is a messaging and docs fix of about 40 lines. Roughly 95% of the diff fixes a different bug (the \"found while reproducing\" one) and then hardens that fix.\n  \n  ### 1. Minimum fix, and what is beyond\n[user] rotation step 2, `Link(<hook>, tmp)` can then capture a `<hook>` that another installer has just replaced with Entire's hook. The rename puts Entire's chained hook at `.pre-entire`. The chain block (`hooks.go:875-880` on main) then calls `.pre-entire`, which calls itself without end.\n  \n     Fix, about 10 lines: after `Link(<hook>, tmp)`, classify `tmp`. If it carries `entireHookMarker`, remove `tmp` and treat the hook as converged. Separately, never emit the chain when the backup carries the marker. This also makes cross-repo and mixed-version races converge without a global lock, so the comm\n[user] ` can still race. That is acceptable; document it.\n  5. **Hot path: no change needed, and it's cheap.**\n     - A wrapper at `<hook>` has no marker, so `gitHookStateInHooksDir` already returns Absent (hooks.go:522-525 on main), and EnsureSetup calls InstallGitHook.\n     - After a reclaim, `<hook>` is Entire's, so the state reads Current.\n     - Put the reclaim check inside InstallGitHook, under the lock, before A's generic path. The read path stays lock-free.\n  \n  ### Should-fix\n  - **Tighten wrapper detection.** It should also require `--hook-type=<this hook>` and `--hook-dir`.\n    - Without `"
+  },
+  {
+   "source": "prompt",
+   "commit": "3c4241bed8",
+   "checkpoint": "01M476BPYFTWKW40117J2293JT",
+   "text": "can you find the other session on this branch and resume?\n\n---\n\nwhy would we need another pr?\n\n---\n\nwhat about the other two?\n\n---\n\ni know they dont need a new PR and this isn't the right conversation i wanted to resume in this worktree. the one i wanted to resume was traiging a lot of tickets\n\n---\n\ni know they dont need a new PR and this isn't the right conversation i wanted to resume in this worktree. the one i wanted to resume was traiging a lot of tickets, and last thing that was done was an adversarial review on all of them\n\n---\n\nit was in this herdr space and had to do with these, https://claude.ai/artifact/Fg5eGAHLYVeif5CGgybDTJ?sk=kI2tN1JY8uURLxyUsV7M8Q the last pr was the husky v9 fix\n\n---\n\nfor 1. are you saying if someone else has a pre commit wrapper, leave it, and treat hooks a"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b4e51aa754",
+   "checkpoint": "01M1PG9XDSAJ46T4Z7WCCC7GCT",
+   "text": "fix(hooks): confine git hook installation to a rooted hooks directory\n\nThe active hooks directory was the last tree Entire wrote to with bare\nos.ReadFile/os.WriteFile on a joined path. A symlink at a hook path was\ntherefore read through and then written through: the 0o755 os.WriteFile\ntruncated whatever the link named and replaced it with a shell script.\n\nAnchor a root at git's own `--git-path hooks` answer, refusing a symlink at\nthe directory itself; route the four hook reads through\nosroot.ReadFileNoFollow; and replace the write with\njsonutil.WriteFileAtomicIn, whose rename replaces a leaf link instead of\nfollowing it. osroot.OpenFileNoFollow is deliberately not used for the\nwrite: it rejects O_TRUNC by design, precisely to push truncating writes\nonto an atomic rename.\n\nThe hooks directory needs its own anchor rather than an existing one\nbecause core.hooksPath can name any directory, inside the worktree or well\noutside it, so allowedRootBases gains an entry with that reason.\n\nA symlinked hook is now classified as foreign rather than as absent, so it\nis backed up to <hook>.pre-entire and chained to exactly as a foreign\nscript is. Refusing to read through someone's link must not mean silently\ndiscarding it, and the rename preserves the link itself as the backup.\n\ndoctor grows checkGitHookSymlinks, reporting a symlinked hooks directory\n(which stops installation, and is otherwise invisible: every other command\njust reports the hooks absent) and a symlinked hook file (which is n"
+  },
+  {
+   "source": "transcript",
+   "commit": "b4e51aa754",
+   "checkpoint": "01M1PG9XDSAJ46T4Z7WCCC7GCT",
+   "text": "[user] NoFollow; replace the 0755 write with jsonutil.WriteFileAtomicIn, which renames over a leaf link instead of writing through it. Two traps called out: TestRootBasesAreTrusted will fail the build until hooks.go is added to allowedRootBases, and osroot.OpenFileNoFollow is the wrong tool here because it rejects O_TRUNC by design. Plus a checkGitHookSymlinks in doctor — it needs its own function rather than an agentSymlinkCheckPaths entry, since core.hooksPath can point outside the worktree.\n\n2 — Gate the summary provider (an hour). Wrap the discoverNamedSummaryProvider call at explain_summary_prov\n[user] NoFollow; replace the 0755 write with jsonutil.WriteFileAtomicIn, which renames over a leaf link instead of writing through it. Two traps called out: TestRootBasesAreTrusted will fail the build until hooks.go is added to allowedRootBases, and osroot.OpenFileNoFollow is the wrong tool here because it rejects O_TRUNC by design. Plus a checkGitHookSymlinks in doctor — it needs its own function rather than an agentSymlinkCheckPaths entry, since core.hooksPath can point outside the worktree.\n\n2 — Gate the summary provider (an hour). Wrap the discoverNamedSummaryProvider call at explain_summary_prov\n[assistant] Now implementing item 1. Starting with `hooks.go`:"
+  },
+  {
+   "source": "prompt",
+   "commit": "b4e51aa754",
+   "checkpoint": "01M1PG9XDSAJ46T4Z7WCCC7GCT",
+   "text": "1 — Confine the git-hook surface (half a day). Lstat-and-refuse a symlinked hooks directory; anchor osroot.Shared(hooksDir) after the existing MkdirAll (which stays a plain os call — creating a directory is an operation from outside it); route the four reads through ReadFileNoFollow; replace the 0755 write with jsonutil.WriteFileAtomicIn, which renames over a leaf link instead of writing through it. Two traps called out: TestRootBasesAreTrusted will fail the build until hooks.go is added to allowedRootBases, and osroot.OpenFileNoFollow is the wrong tool here because it rejects O_TRUNC by design. Plus a checkGitHookSymlinks in doctor — it needs its own function rather than an agentSymlinkCheckPaths entry, since core.hooksPath can point outside the worktree.\n\n2 — Gate the summary provider (a"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b10dfb85b9",
+   "checkpoint": "2a29469db94c",
+   "text": "more informative output depending on state when enabling"
+  },
+  {
+   "source": "transcript",
+   "commit": "b10dfb85b9",
+   "checkpoint": "2a29469db94c",
+   "text": "[assistant]  performed:\n\n1. Setup Claude Code hooks (`setupClaudeCodeHook`)\n2. Setup .entire directory (`setupEntireDirectory`)\n3. Save settings (either local or project settings)\n4. Install git hooks (`strategy.InstallGitHook`)\n5. Let strategy handle its own setup (`strat.EnsureSetup()`)\n\nCurrently, it only shows a single \"✓ Enabled (strategy)\" message at the end. The user wants each step to have a checkmark shown as it completes.\n\nHere's my proposal for improving the output:\n\n```\n✓ Claude Code hooks installed\n✓ .entire directory created\n✓ Settings saved\n✓ Git hooks installed\n✓ Strategy setup complete\n\n✓\n[assistant] e enable command performs these steps:\n\n1. Setup Claude Code hooks (`setupClaudeCodeHook`)\n2. Setup .entire directory (`setupEntireDirectory`)\n3. Save settings to file\n4. Install git hooks (`strategy.InstallGitHook`)\n5. Strategy-specific setup (`strat.EnsureSetup()`)\n\nCurrently it only shows `✓ Enabled (manual-commit)` at the end. \n\n**Proposed change:**\n\n```\n✓ Claude Code hooks installed\n✓ .entire directory created\n✓ Settings saved\n✓ Git hooks installed\n✓ Strategy initialized\n\n✓ Enabled (manual-commit)\n```\n\nThe approach would be to add print statements after each step succeeds. This provides b\n[assistant] The user wants the same \"verified\" vs \"installed\" treatment for git hooks. Let me check the `strategy.InstallGitHook` function to see if it returns information about whether hooks were installed or already existed.\n[assistant] Let me check if `strategy.InstallGitHook` returns information about whether hooks were installed:\n[assistant] I see that `InstallGitHook` calls `writeHookFile` for each hook. Let me check that function to see if it tracks whether something was actually written:"
+  },
+  {
+   "source": "prompt",
+   "commit": "b10dfb85b9",
+   "checkpoint": "2a29469db94c",
+   "text": "when running: \n❯ entire enable\n\n✓ Enabled (manual-commit)\n\nI'd like us to show more what else is setup. Like for each step there should be a check mark listed. Can you take a look and propose change?\n\n---\n\nInstead of \"Strategy initialized\" we should do \"<strategy name> strategy initialized\" and remove \"(manual-commit)\" from \"Enabled\"\n\n---\n\nnow when I rerun `entire enable` and there is already a `.entire/settings.json` we default to updating `.entire/settings.local.json`. I'd like to change this so it's more interactive. If there is a settings.json already we ask if it should be updated, or if local settings should be used instead.\n\n---\n\ngoing back to the changes before: when I rerun `entire enable` it says again \"✓ Claude Code hooks installed\" and\n\"✓ .entire directory created\" is there a w"
+  },
+  {
+   "source": "commit_message",
+   "commit": "4a08b56738",
+   "checkpoint": "43cdf4753c06",
+   "text": "add --abolute-git-hook-path to entire enable, this will setup your hooks with absolute paths to the entire binary"
+  },
+  {
+   "source": "transcript",
+   "commit": "4a08b56738",
+   "checkpoint": "43cdf4753c06",
+   "text": "[user] go`**\n- Add `absoluteHookPath` bool flag to `newEnableCmd()`\n- Pass it through `runEnableInteractive()` and `setupAgentHooksNonInteractive()`\n- Save to `settings.AbsoluteHookPath`\n- Pass to `strategy.InstallGitHook()` (new parameter)\n\n### 3. Update hook generation to support absolute paths\n\n**`cmd/entire/cli/strategy/hooks.go`**\n- Update `hookCmdPrefix(localDev bool)` → `hookCmdPrefix(localDev, absolutePath bool)`\n- When `absolutePath` is true: resolve via `os.Executable()` + `filepath.EvalSymlinks()`, fall back to `\"entire\"` on error\n- Update `InstallGitHook(silent, localDev bool)` → `Install\n[assistant] Now let me check setup_test.go for any InstallGitHook calls.\n[assistant] Let me check the setup_test.go for InstallGitHook calls.\n[assistant] ings** (`settings/settings.go`):\n- Added `AbsoluteHookPath bool` field to `EntireSettings` struct\n- Added merge logic in `mergeJSON()` for the `absolute_hook_path` key\n\n**Hook generation** (`strategy/hooks.go`):\n- `hookCmdPrefix(localDev bool)` → `hookCmdPrefix(localDev, absolutePath bool)` — when `absolutePath` is true, resolves via `os.Executable()` + `filepath.EvalSymlinks()`, falls back to `\"entire\"` on error\n- `InstallGitHook(silent, localDev bool)` → `InstallGitHook(silent, localDev, absolutePath bool)`\n- Added `isAbsoluteHookPath()` helper (reads from settings)\n\n**Hook managers** (`stra\n[user] ented:\n   - Added `AbsoluteHookPath` field to `EntireSettings` struct\n   - Added merge logic in `mergeJSON()`\n   - Updated `hookCmdPrefix()` signature to accept `absolutePath` parameter\n   - Updated `InstallGitHook()` signature\n   - Added `isAbsoluteHookPath()` helper\n   - Updated `CheckAndWarnHookManagers()` signature\n   - Updated `EnsureSetup()` in common.go\n   - Added `--absolute-hook-path` flag to `newEnableCmd()`\n   - Passed through `runEnableInteractive()` and `setupAgentHooksNonInteractive()`\n   - Updated all test call sites\n   - Added `TestInstallGitHook_AbsoluteHookPath` test\n\n3. **Er"
+  },
+  {
+   "source": "prompt",
+   "commit": "4a08b56738",
+   "checkpoint": "43cdf4753c06",
+   "text": "Implement the following plan:\n\n# Fix: Git hooks fail in GUI clients (Issue #489)\n\n## Context\n\nGit hooks installed by `entire enable` use bare `entire` command. GUI git clients (Xcode, Tower, etc.) don't source shell profiles, so `entire` isn't on PATH and hooks fail with `command not found`. The fix adds an opt-in `--absolute-hook-path` flag that embeds the full binary path in git hooks.\n\n## Changes\n\n### 1. Add `AbsoluteHookPath` setting\n\n**`cmd/entire/cli/settings/settings.go`**\n- Add `AbsoluteHookPath bool` field to `EntireSettings` struct (`json:\"absolute_hook_path,omitempty\"`)\n- Add merge logic in `mergeJSON()` (same pattern as `local_dev`)\n\n### 2. Add `--absolute-hook-path` flag to `entire enable`\n\n**`cmd/entire/cli/setup.go`**\n- Add `absoluteHookPath` bool flag to `newEnableCmd()`\n- "
+  },
+  {
+   "source": "commit_message",
+   "commit": "a9a676e795",
+   "checkpoint": "01M00A6KK7GC43YE6DT3WX5FWN",
+   "text": "refactor(hooks)!: remove local_dev mode\n\nLocal-dev mode pointed installed hooks at `scripts/entire-dev`, a launcher\ninside the working tree that compiled and ran the checked-out source. It was\nread from the *committed* `.entire/settings.json` (settings.go merged\n`local_dev` from the project scope, and strategy/common.go regenerated the git\nhook from it), so any repository could commit `\"local_dev\": true` and have\n`entire enable` install hooks that execute that repository's own code. A branch\ncheckout could then swap what ran. This repo shipped exactly that: `local_dev:\ntrue` was tracked, and all six committed agent configs invoked the launcher.\n\nHooks now always name the `entire` binary. Removed the `--local-dev` flags\n(including the non-hidden one on `entire agent add`), `EnableOptions.LocalDev`,\nthe `localDev` parameter from `Agent.InstallHooks` across all nine agents and\nthe external-agent protocol, the claude-code local-dev SessionEnd timeout, and\nthe launcher script.\n\n`EntireSettings.LocalDev` stays as a documented no-op: the loaders use\nDisallowUnknownFields, so deleting the field would make every existing settings\nfile containing `local_dev` a hard parse error. It is not merged from overrides\nand nothing reads it, matching the `Strategy` precedent.\n\nRemoving the feature is not enough to disarm existing installs, so this also\nfixes how hooks written by older versions get replaced:\n\n- `isGitHookInstalledInHooksDir` only looked for the Entire marker, which a\n  legacy hook"
+  },
+  {
+   "source": "transcript",
+   "commit": "a9a676e795",
+   "checkpoint": "01M00A6KK7GC43YE6DT3WX5FWN",
+   "text": "[assistant] ooding anyway.** Production hook commands are wrapped (`sh -c 'if ! command -v entire …; then exit 0; fi; exec …'`, `agent/hook_command.go:93`); local-dev commands are not wrapped at all (`claudecode/hooks.go:161-186`). Local-dev also gets a bespoke 60s SessionEnd timeout production never has (`claudecode/hooks.go:71`). So the divergence sits exactly in the fragile part — PATH probing, wrapper quoting, hook timeouts. Every hour spent in local-dev mode is an hour *not* testing the hook shape users actually get. Removing it improves fidelity.\n\n## Options\n\n**A. PATH shadowing via a built binary —\n[user] oductionSilentHookCommand` / `WrapProductionJSONWarningHookCommand` are **unchanged** by this diff. Every agent's old code already called them inside an `if !localDev` branch (verified in `claudecode/hooks.go` old lines 510-516, `cursor/hooks.go` old `if !localDev {…}`, `codex/hooks.go`, `factoryaidroid/hooks.go`, `copilotcli/hooks.go`). Production users' hook strings are the same before and after, so the extra `sh` fork + `command -v` probe is pre-existing, not introduced here.\n- What the diff removes is the *other* branch. Measured in this repo, warm cache, per hook firing:\n  - old local-dev\n[user] s, and stale git hooks now break `git push`\n`EnsureSetup` (runs on every turn-start, `lifecycle.go:573`) only reinstalls when `!IsGitHookInstalled(ctx)`, and `isGitHookInstalledInHooksDir` (`strategy/hooks.go:156-168`) checks **only for `entireHookMarker`** — a legacy `./scripts/entire-dev hooks git …` hook has the marker, so it counts as installed forever. Nothing else repairs it: `entire doctor` has no git-hook check at all (`doctor.go` only does agent `CheckHookConfig` + codex trust), and `configure` reinstalls only with `--force`/`--absolute-git-hook-path`.\n\nThis is not cosmetic. `gitHookC"
+  },
+  {
+   "source": "commit_message",
+   "commit": "2ad6d9fe90",
+   "checkpoint": "01M4EX7ADWY1Y94M78719GHNQM",
+   "text": "hooks: install without the lock when it cannot be used, as uninstall does\n\nInstall runs on enable and at every agent turn, and needed no per-user\ndirectory before the hooks lock existed. A lock directory or lock file that\ncannot be used is now warned about and skipped instead of failing the\ninstall; a lock another Entire process holds still stops it. The pre-commit\nreclaim message goes through stderrWriter like the other hook messages."
+  },
+  {
+   "source": "transcript",
+   "commit": "2ad6d9fe90",
+   "checkpoint": "01M4EX7ADWY1Y94M78719GHNQM",
+   "text": "[user] , plus three new trail findings that came in while I worked. Nothing is open now, and I didn't merge.\n\n**Commits** on `fix/hook-backup-overwrite`, all in `cmd/entire/cli/strategy/`:\n- **eeef6e18e:** `hooks.go`, `hook_backup.go`, `hook_backup_test.go`. Adds 112 lines and removes 3.\n- **34700510a:** the same three files. Adds 72 lines and removes 18.\n- **The PR is now +1243/−35.** It was +1069/−24, so the two commits added 174 lines and removed 11, about half of it tests.\n\n**Codex findings:**\n1. **Hook replaced between backup and write: real, fixed.** Just before the write, the install now check\n[user] se they only apply if 1492 or 1468 merges first. I pushed one commit, **e56ebc4b3**, to `fix/enable-existing-hooks`. Nothing was merged or force-pushed.\n\n**Files changed:**\n- `cmd/entire/cli/strategy/hooks.go`\n- `cmd/entire/cli/setup.go`\n- `README.md`\n- `cmd/entire/cli/strategy/hooks_test.go`\n- `cmd/entire/cli/uninstall_output_test.go`\n\nThe commit adds 99 lines and removes 8. The PR is now +154/−23, up from +58/−18; most of the growth is tests.\n\n**Per finding:**\n- **01M4B3EQC4CA (Low, install message lists four hooks): fixed.** The install success line now includes post-rewrite. The uninstall \n[user] may notify more than once.</note>\n<result>All four findings on trail 1492 were real. They're fixed in one commit, dbe0b8653, pushed to `fix/hook-backup-overwrite`. It touches `cmd/entire/cli/strategy/hooks.go`, `hook_backup.go` and `hook_backup_test.go`, adding 165 lines and removing 13. PR #2670 is now +1395/−35.\n\n**01M4BYBJH9E3 (Medium): another hook manager over Entire loops forever.**\n- **Cause:** a tool that moves Entire's hook aside and runs it from its own wrapper caused an endless Entire → wrapper → Entire loop. The new test reproduced it: on the old code the hook ran until the 10s tim"
+  },
+  {
+   "source": "commit_message",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Add consistent context plumbing everywhere"
+  },
+  {
+   "source": "transcript",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "[user] te context instead of creating `context.Background()`.\n\n**Files:**\n- `strategy/manual_commit_git.go` — `SaveStep`, `SaveTaskStep`, `AttemptAddAttribution` + internal helpers\n- `strategy/manual_commit_hooks.go` — `PrepareCommitMsg`, `PostCommit`, `InitializeSession`, `HandleTurnEnd` + helpers like `handleAmendCommitMsg`, `updateBaseCommitIfChanged`, `addTrailerForAgentCommit`\n- `strategy/manual_commit_condensation.go` — `CondenseSession`, `CondenseSessionByID`\n- `strategy/manual_commit_rewind.go` — `Rewind`, `GetRewindPoints`, rewind helpers\n- `strategy/manual_commit_logs.go` — `GetSessionInfo`\n[assistant] (strategy implementations):**\n- `auto_commit.go` - still has many context.Background() (the agent updated method signatures but didn't replace internal context.Background() with ctx)\n- `manual_commit_hooks.go` - still has context.Background() in helpers\n- `manual_commit_condensation.go` - still has context.Background()\n\n\n- `manual_commit_session.go` - still has context.Background() in some places\n- `common.go` - still has context.Background()\n- `content_overlap.go` - still has context.Background()\n- `cleanup.go` - still has context.Background()\n- `hooks.go` - still has context.Background()\n- `\n[user] s PR), add a TODO comment at the interface definition explaining the plan.\n\n### I2. Dual context parameters in handleAmendCommitMsg\n\n**`/Users/pfleidi/entire/cli/cmd/entire/cli/strategy/manual_commit_hooks.go:393`**\n\nThis function accepts two `context.Context` parameters:\n\n```go\nfunc (s *ManualCommitStrategy) handleAmendCommitMsg(ctx context.Context, logCtx context.Context, commitMsgFile string) error {\n```\n\nHaving two context parameters is confusing and error-prone. A maintainer must carefully choose between `ctx` and `logCtx` for each call. Compare with `TransitionAndLog` at `/Users/pfleidi/"
+  },
+  {
+   "source": "prompt",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Implement the following plan:\n\n# Plan: Add Context Plumbing Throughout the CLI\n\n## Context\n\n`main.go` creates a cancellable context (`context.WithCancel`) and passes it to Cobra via `rootCmd.ExecuteContext(ctx)`. However, no command retrieves it via `cmd.Context()`. Instead, ~120+ production code locations create `context.Background()`, losing cancellation support from SIGINT/SIGTERM and any parent context values.\n\n## Goal\n\nThread the root context from `main.go` through the entire call chain, replacing `context.Background()` with the properly propagated context. This enables signal-based cancellation to propagate to git operations, checkpoint writes, and other long-running work.\n\n## Exceptions (keep `context.Background()`)\n\n- `main.go:18` — this IS the root context\n- `telemetry/detached_un"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7aa9eff264",
+   "checkpoint": "01M20N8SNNHP618NV571XYYHM3",
+   "text": "fix(hooks,settings): address review findings on the hardening commits\n\nSeven findings, of which two are regressions the preceding commits\nintroduced rather than gaps they left.\n\nThe git hook directory's symlink refusal was shared by install, removal\nand detection, so a symlinked hooks directory could not be uninstalled\npast -- RemoveGitHook is the only uninstall path -- while\ngitHookStateInHooksDir reported GitHooksAbsent, sending EnsureSetup to\nInstallGitHook and failing every agent turn on the same refusal. Split\nhooksRoot into ForInstall (refuses) and ForRemoval (resolves), and point\nremoval and detection at the latter: both act only on files Entire wrote,\nso following the link costs nothing the install-time refusal protected.\n\nA hook that could not be READ was classified \"not foreign\", so it got no\nbackup, and the write is an atomic rename, which needs no permission on\nthe target at all. An unreadable hook was silently destroyed where the\nin-place write it replaced failed loudly with EACCES. classifyExistingHook\nnow identifies absent/ours/foreign positively and refuses to write on\nanything else; removal treats the same case as present-and-not-ours so a\nbackup is not renamed over it either.\n\nGating discoverSummaryProviderIfMissing on external_agents made an\nauto-selected external provider unresolvable on the next run, while\npersistSummaryProviderSelection still wrote it down -- Entire breaking\nitself with its own write, with the stale comment still claiming it\nworked. Pers"
+  },
+  {
+   "source": "transcript",
+   "commit": "7aa9eff264",
+   "checkpoint": "01M20N8SNNHP618NV571XYYHM3",
+   "text": "[assistant] ch against `78a655db4` by looking at whether the gap it closes still exists in main:\n\n| Commit | Still needed? | Evidence in main |\n|---|---|---|\n| `fix(hooks)` rooted hooks dir | **Yes** | `strategy/hooks.go` still does bare `os.ReadFile`/`os.WriteFile` on `filepath.Join(hooksDir, hook)` at 6 call sites (lines 237, 442, 482, 488, 511). Main's `0ec5743b3` scoped hook *ownership*, not the path handling. |\n| `fix(explain)` gate on `external_agents` | **Yes** — complementary, not duplicate | See below. |\n| `fix(git)` branch-name validation | **Yes** | `CheckoutBranch` still has only `strings.HasP\n[assistant] *#1 is not limited to `disable` — it's a full lockout.** `gitHookStateInHooksDir` returns `GitHooksAbsent` when `hooksRoot` fails, so `EnsureSetup` sees \"not installed\" → calls `ReinstallGitHooks` → `InstallGitHook` → hard error. `EnsureSetup` is called from `lifecycle.go:600`, the agent hook path. So a symlinked hooks directory doesn't just block uninstall; it fails every turn of session capture, and `enable`, and `doctor --fix`. The user can't disable *and* can't use it.\n\n**#2 is a regression, and I reproduced the mechanism:**\n```\nold (os.WriteFile, O_TRUNC):  PermissionError: [Errno 13] ...\n[assistant] Now implementing. Starting with `hooks.go` (findings #1, #2, #6):\n[assistant] et). `RemoveGitHook` **and** `gitHookStateInHooksDir` now use the removal variant. The detection half mattered as much as the uninstall half: it reported `GitHooksAbsent`, which sent `EnsureSetup` → `InstallGitHook` → the same refusal, on every agent turn. Justification for the asymmetry is at the function: removal only deletes marker-bearing files and renames back backups Entire itself made, so following the link costs nothing install-time refusal was protecting.\n\n**#2 — no silent destruction.** `classifyExistingHook` identifies absent/ours/foreign positively and returns an error for anything"
+  },
+  {
+   "source": "prompt",
+   "commit": "7aa9eff264",
+   "checkpoint": "01M20N8SNNHP618NV571XYYHM3",
+   "text": "fix rebase conflicts and continue the rebase\n\n---\n\nGiven the recent changes in main, are these changes still needed?\n\n---\n\nHere's some feedback for the changes:\n\n- entire disable can never finish if the hooks directory is a symlink. Uninstall only deletes Entire's own files, but it now refuses outright and exits non-zero — forever, until the user edits git config by hand. The refusal should be install-only.\n- An unreadable pre-existing hook gets destroyed, silently. If Entire can't read a hook (bad perms), it doesn't classify it as foreign → no backup → the new atomic rename overwrites it anyway (rename only needs the directory writable). The old code failed loudly and left the file alone.\n- Auto-selected external summary provider breaks on the next run. Entire auto-picks an external plugi"
+  }
+ ],
+ "cost": {
+  "usd": 0.056633,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 151,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 13763
+ },
+ "trace_id": "59cf66d254e1e1b1977624728b56de8c",
+ "error": null,
+ "trace_spans": 6
+}

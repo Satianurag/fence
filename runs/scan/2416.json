@@ -1,0 +1,238 @@
+{
+ "issue": 2416,
+ "title": "`entire doctor` stuck-session prompt bypasses `interactive.CanPromptInteractively()`, so it blocks in scripts and CI",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The stuck-session prompt was written as a huh select with Condense/Discard/Skip, and nothing in the evidence shows anyone chose for it to block when non-interactive. The non-interactive guard was deliberately added only to checkGitHooks ('doctor is a diagnostic an agent or CI job runs unattended, so it must neither block on a confirm'), which suggests the older prompt was simply missed rather than exempted.",
+  "quotes": [
+   {
+    "evidence_id": 4,
+    "source": "commit_message",
+    "commit": "72759d952a",
+    "checkpoint": "01M00FARP8MQ1EX2D1H5AGEJ3S",
+    "quote": "doctor is a diagnostic an agent or CI job runs unattended, so it must neither block on a confirm nor rewrite a repo's hooks unasked"
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 4,
+  "symbols_named": 15,
+  "spans": 10,
+  "span_list": [
+   [
+    "cmd/entire/cli/doctor.go",
+    533,
+    533,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/utils.go",
+    26,
+    26,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/utils.go",
+    35,
+    35,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/interactive/interactive.go",
+    38,
+    66,
+    "func:CanPromptInteractively"
+   ],
+   [
+    "cmd/entire/cli/doctor.go",
+    618,
+    677,
+    "func:checkGitHooks"
+   ],
+   [
+    "cmd/entire/cli/doctor.go",
+    145,
+    331,
+    "func:runSessionsFix"
+   ],
+   [
+    "cmd/entire/cli/doctor.go",
+    411,
+    437,
+    "func:promptSessionAction"
+   ],
+   [
+    "cmd/entire/cli/utils.go",
+    26,
+    28,
+    "func:NewAccessibleForm"
+   ],
+   [
+    "cmd/entire/cli/doctor.go",
+    384,
+    401,
+    "func:displayStuckSession"
+   ],
+   [
+    "cmd/entire/cli/utils.go",
+    39,
+    46,
+    "func:handleFormCancellation"
+   ]
+  ],
+  "lines": 335,
+  "lines_linked": 285,
+  "checkpoints": 37
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "8e02c9ce76",
+   "checkpoint": "2df5534f384a",
+   "text": "Cleanup: session state helpers, amend -m fix, transition logging (ENT-221)\n\n- Replace current_session file with FindMostRecentSession() across all hooks\n- Fix non-interactive `git commit --amend -m` silently dropping checkpoint\n  trailer by detecting isRestoringExisting and skipping TTY prompt\n- Add TransitionAndLog() as single entry point for all state machine\n  transitions with consistent INFO/DEBUG logging\n- Add `entire sessions fix` command for stuck session recovery\n- Enhance `entire reset` with --session flag and active session guards\n- Add integration tests for commit-before-stop and amend-preserves-trailer\n- Add table-driven unit test for PendingCheckpointID reuse across source types\n- Update CLAUDE.md with session phase state machine docs"
+  },
+  {
+   "source": "transcript",
+   "commit": "8e02c9ce76",
+   "checkpoint": "2df5534f384a",
+   "text": "[user] i/sessions_fix.go`** — NEW FILE: `entire sessions fix` command\n     - `newSessionsCmd()` — parent `entire sessions` command\n     - `newSessionsFixCmd()` — `fix` subcommand with `--force` flag\n     - `runSessionsFix()` — main logic: scans states, classifies, prompts, acts\n     - `classifySession()` — identifies stuck sessions (ACTIVE >1hr stale, ENDED with uncondensed data)\n     - `displayStuckSession()` — prints diagnostic info\n     - `promptSessionAction()` — huh select with Condense/Discard/Skip using `NewAccessibleForm()`\n     - `discardSession()` — clears state, deletes shadow branch if sa"
+  },
+  {
+   "source": "prompt",
+   "commit": "8e02c9ce76",
+   "checkpoint": "2df5534f384a",
+   "text": "Branch off alex/ent-221-type-consolidation for PR 2 of ENT-221.\n\n  Read the plan at docs/plans/2026-02-06-session-phase-state-machine-v2.md — specifically Task 4: Wire State Machine into Hooks. Also\n  read the review notes at docs/plans/2026-02-06-session-phase-review-notes.md for context on design decisions (no TTL, no catch-up\n  checkpoints, defer file locking).\n\n  What's already done (PR 1):\n  - cmd/entire/cli/session/phase.go — Pure Transition(phase, event, ctx) function with all states/events/actions\n  - session.State has Phase, PendingCheckpointID, LastInteractionTime fields\n  - strategy.SessionState is now a type alias for session.State (no more converter functions)\n  - CheckpointTranscriptStart replaces CondensedTranscriptLines/TranscriptLinesAtStart in session state\n  - StepTransc"
+  },
+  {
+   "source": "commit_message",
+   "commit": "72759d952a",
+   "checkpoint": "01M00FARP8MQ1EX2D1H5AGEJ3S",
+   "text": "feat(doctor): check and repair stale git hooks\n\n`.git/hooks` is the one hook surface a user cannot see going wrong. Agent hook\nconfigs are committed files that turn up in a diff; git hooks are per-clone and\nuntracked, so pulling a release that changes hook generation never touches them.\nA hook left by the removed local-dev mode still carries Entire's marker, so it\nlooks installed while naming a launcher inside the working tree that is gone —\nand because that shape got no availability guard while pre-push propagates exit\ncodes, the symptom is `git push` being rejected. Doctor had no git-hook check at\nall, so the place a user looks after a rejected push said nothing.\n\nUnlike the sibling agent hook checks this one repairs rather than only warning:\nthe reinstall is content-idempotent, backs up any foreign hook it displaces, and\nwrites exactly what the next turn-start would write anyway. It degrades to\nwarn-only when there is nobody to ask, naming `--force` instead — doctor is a\ndiagnostic an agent or CI job runs unattended, so it must neither block on a\nconfirm nor rewrite a repo's hooks unasked. An existing bare-`doctor` test caught\nthat: without the guard the prompt fails to open a TTY and doctor exits 1.\n\nDistinguishing \"no hooks\" from \"ours but stale\" needs more than a bool, so this\nadds strategy.GitHookState (Absent/Current/Outdated), mirroring\nagent.HookConfigState so both hook surfaces share one vocabulary.\nIsGitHookInstalled keeps meaning \"current\" for EnsureSetup.\n\nThat "
+  },
+  {
+   "source": "transcript",
+   "commit": "72759d952a",
+   "checkpoint": "01M00FARP8MQ1EX2D1H5AGEJ3S",
+   "text": "[user] (`renderExtension(false), renderExtension(true)` → `renderExtension()`), saving one `strings.ReplaceAll` over a 5.7 KB / 10.2 KB template per `entire status` / `entire doctor` call (`config.go:124`, `doctor.go:457` — not a hook path).\n\n**Bottom line:** no efficiency issue to fix. The one thing worth stating in the PR is the opposite of a concern: hook-firing cost for anyone previously on local-dev drops from ~4 s to ~4 ms, and production hook command strings are unchanged.</result>\n<usage><subagent_tokens>195108</subagent_tokens><tool_uses>39</tool_uses><duration_ms>306422</duration_ms></usage\n[assistant] . The doctor step, matching `checkDisconnectedMetadata`\n\nIt takes `force` and uses the existing `confirmDoctorFix`, so it behaves like the one other check that actually repairs something:\n\n```go\nfunc checkGitHooks(cmd *cobra.Command, force bool) error {\n\tctx, w := cmd.Context(), cmd.OutOrStdout()\n\n\tstate := strategy.CheckGitHookState(ctx)\n\tif state == strategy.GitHooksCurrent {\n\t\tfmt.Fprintln(w, \"✓ Git hooks: OK\")\n\t\treturn nil\n\t}\n\n\tif state == strategy.GitHooksOutdated {\n\t\tfmt.Fprintln(w, \"Git hooks: OUT OF DATE\")\n\t\tfmt.Fprintln(w, \"  A hook still runs Entire from the working tree instead of t\n[assistant] {\"summary\":\"\",\"comments\":[{\"severity\":\"medium\",\"confidence\":0.6,\"body\":\"`checkGitHooks` treats `strategy.GitHooksAbsent` as an actionable problem (\\\"Git hooks: NOT INSTALLED\\\") and, under `--force` or an interactive yes, calls `strategy.ReinstallGitHooks` — with no check that Entire was ever enabled for this repo (no `settings.Enabled`/`.entire` existence check, unlike `checkCodexHookTrust`'s `.codex/hooks.json` guard or `checkHookDrift`'s silent `HooksAbsent` case). Running `entire doctor --force` in any git repo that merely has `entire` on PATH — but never ran `entire enable` — will now back"
+  },
+  {
+   "source": "prompt",
+   "commit": "72759d952a",
+   "checkpoint": "01M00FARP8MQ1EX2D1H5AGEJ3S",
+   "text": "how would the git-hook step look in doctor"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f3b60318ac",
+   "checkpoint": "01M00HCT0DYMHXAF42RE5SBS3P",
+   "text": "fix(doctor): only treat missing git hooks as a problem where Entire is set up\n\ndoctor runs in any git repository, and `--force` means \"don't ask me\", not \"take\nover this repo\". Reported by trail finding 01a000fc-37af: checkGitHooks treated\nGitHooksAbsent as actionable with no check that Entire had ever been enabled\nhere, so `entire doctor --force` in a repo that merely had `entire` on PATH\nbacked up that repo's own pre-push hook and installed all five of Entire's.\nReproduced before fixing.\n\nMissing hooks are now only reported where settings exist in either scope. The\nsibling checks already held this line — checkHookDrift stays silent on\nHooksAbsent, checkCodexHookTrust returns early with no codex hooks file — so this\ncheck was the outlier.\n\nIsSetUpAny rather than IsSetUpAndEnabled: a repo that ran `entire disable` still\nwants working hooks, because the hooks themselves are what no-op while disabled.\nGitHooksOutdated stays actionable regardless of settings — a hook carrying\nEntire's marker means this repo opted in at some point, and a stale one is\nactively broken rather than merely absent."
+  },
+  {
+   "source": "transcript",
+   "commit": "f3b60318ac",
+   "checkpoint": "01M00HCT0DYMHXAF42RE5SBS3P",
+   "text": "[user] (`renderExtension(false), renderExtension(true)` → `renderExtension()`), saving one `strings.ReplaceAll` over a 5.7 KB / 10.2 KB template per `entire status` / `entire doctor` call (`config.go:124`, `doctor.go:457` — not a hook path).\n\n**Bottom line:** no efficiency issue to fix. The one thing worth stating in the PR is the opposite of a concern: hook-firing cost for anyone previously on local-dev drops from ~4 s to ~4 ms, and production hook command strings are unchanged.</result>\n<usage><subagent_tokens>195108</subagent_tokens><tool_uses>39</tool_uses><duration_ms>306422</duration_ms></usage\n[assistant] . The doctor step, matching `checkDisconnectedMetadata`\n\nIt takes `force` and uses the existing `confirmDoctorFix`, so it behaves like the one other check that actually repairs something:\n\n```go\nfunc checkGitHooks(cmd *cobra.Command, force bool) error {\n\tctx, w := cmd.Context(), cmd.OutOrStdout()\n\n\tstate := strategy.CheckGitHookState(ctx)\n\tif state == strategy.GitHooksCurrent {\n\t\tfmt.Fprintln(w, \"✓ Git hooks: OK\")\n\t\treturn nil\n\t}\n\n\tif state == strategy.GitHooksOutdated {\n\t\tfmt.Fprintln(w, \"Git hooks: OUT OF DATE\")\n\t\tfmt.Fprintln(w, \"  A hook still runs Entire from the working tree instead of t\n[assistant] rked stale (the code it pointed at changed). No open findings remain. PR #1999 is at 5 commits.\n\n## The finding was real — and it was mine, from the doctor step I added an hour ago\n\n**`cmd/entire/cli/doctor.go:480`, medium, confidence 0.60** — `checkGitHooks` treated `GitHooksAbsent` as actionable with no check that Entire had ever been enabled in the repo, unlike both sibling checks.\n\nI reproduced it before touching anything, in a git repo with no `.entire/` that never ran enable:\n\n```\nGit hooks: NOT INSTALLED\n[entire] Backed up existing pre-push to pre-push.pre-entire\n  ✓ Fixed: git hooks re"
+  },
+  {
+   "source": "prompt",
+   "commit": "f3b60318ac",
+   "checkpoint": "01M00HCT0DYMHXAF42RE5SBS3P",
+   "text": "can you look at the trail findings"
+  },
+  {
+   "source": "commit_message",
+   "commit": "6bb4f5caf0",
+   "checkpoint": "7c5b9b10fb55",
+   "text": "fix: propagate errors instead of swallowing in push, doctor, and post-commit paths\n\nThree error-handling fixes from PR review:\n\n1. Push path (push_common.go): reconciliation failure now returns an error\n   instead of warning-and-continue. Proceeding to tree merge on disconnected\n   branches would silently combine unrelated histories.\n\n2. Doctor command (doctor.go): metadata check failure now propagates to\n   the return value (non-zero exit). Previously, `entire doctor` could\n   report success when the recommended repair path itself failed.\n\n3. Post-commit hook (manual_commit_hooks.go): filesChangedInCommit now\n   falls back to go-git tree walk when git diff-tree fails, instead of\n   returning an empty map that breaks downstream condensation logic."
+  },
+  {
+   "source": "transcript",
+   "commit": "6bb4f5caf0",
+   "checkpoint": "7c5b9b10fb55",
+   "text": "[assistant] es — the exact scenario reconciliation was supposed to prevent. Could produce a merge that obscures the disconnected state.\n\n2. **[errors] Doctor command swallows metadata check failure, exits 0** — `doctor.go:68-71`\n   `entire doctor` is the recommended repair path, yet if `checkDisconnectedMetadata` fails, it prints a warning and continues with exit 0. Users will think the fix succeeded.\n\n3. **[errors] Empty file set on `DiffTreeFiles` failure breaks condensation** — `manual_commit_hooks.go` (`filesChangedInCommit`)\n   Returns empty map on failure. Downstream condensation logic uses this to \n[assistant] ls (and was attempted because disconnection was detected), we should return the error rather than proceeding with the tree merge.\n\n**Fix #2: Doctor command should propagate metadata check failure** (`doctor.go:68-71`)\nThe error should be propagated to the return value so the command exits non-zero.\n \n**Fix #3: `filesChangedInCommit` should fall back to go-git tree walk** (`manual_commit_hooks.go:2184`)\nWhen `DiffTreeFiles` fails, I need to fall back to the go-git tree walk instead of returning an empty map. The call site has both trees available, so I'll modify the function signature to accept\n[assistant] Now I need to propagate the error at the end of `runSessionsFix`. Let me look at the return.\n[assistant] Wait — `metadataErr` is defined in the scope of `runSessionsFix` but used after the stuck sessions processing. Let me verify the variable is accessible there. Let me re-read the function to make sure scope is correct."
+  },
+  {
+   "source": "prompt",
+   "commit": "6bb4f5caf0",
+   "checkpoint": "7c5b9b10fb55",
+   "text": "# Comprehensive PR Review\n\nRun a comprehensive pull request review using multiple specialized agents, each focusing on a different aspect of code quality.\n\n**Review Aspects (optional):** \"\"\n\n## Review Workflow:\n\n1. **Determine Review Scope**\n   - Check git status to identify changed files\n   - Parse arguments to see if user requested specific review aspects\n   - Default: Run all applicable reviews\n\n2. **Available Review Aspects:**\n\n   - **comments** - Analyze code comment accuracy and maintainability\n   - **tests** - Review test coverage quality and completeness\n   - **errors** - Check error handling for silent failures\n   - **types** - Analyze type design and invariants (if new types added)\n   - **code** - General code review for project guidelines\n   - **simplify** - Simplify code for cl"
+  },
+  {
+   "source": "commit_message",
+   "commit": "1015ff4555",
+   "checkpoint": "adc8e8b06e82",
+   "text": "Extract canPromptInteractively to shared interactive package\n\nThe cli and strategy packages each carried a private copy of\ncanPromptInteractively() with identical TTY-detection and\nENTIRE_TEST_TTY override semantics. strategy cannot import cli (import\ncycle), so duplication was previously the cheap workaround — but it\nmeans the two copies silently drift apart on every refactor.\n\nExtract the shared helper to a new leaf package cmd/entire/cli/\ninteractive, which depends only on os. Both cli (attach, explain\nsummary provider, login, setup) and strategy (manual_commit_rewind)\nnow import and call interactive.CanPromptInteractively().\n\nTest coverage moved from setup_test.go (which tested the cli copy) to\ninteractive/interactive_test.go, preserving the three env-var scenarios\n(forced on, forced off, non-\"1\" value).\n\nIsolated package with no cli/strategy dependencies means future shared\nTTY/interactivity helpers (such as the duplicated isAccessibleMode)\nhave an obvious home when the scope is right."
+  },
+  {
+   "source": "transcript",
+   "commit": "1015ff4555",
+   "checkpoint": "adc8e8b06e82",
+   "text": "[assistant] with non-interactive guard\n- **Settings merge logic** correctly does field-level merging for `summary_generation` sub-fields\n- **Accessibility compliance**: `promptForSummaryProvider` correctly uses `NewAccessibleForm()`\n- **`summarize.Generator` interface** is the best-designed type in the PR (single-method, clean contract, used in three call sites)\n\n## Recommended action\n\n1. **Before merge:** fix #1 (Gemini validation), #2 (duplication), #3 (swallowed DetectPresence errors), #4 (log severity), and add the geminicli regression test\n2. **Follow-up:** #5–#8 (interface return type, constructor, "
+  },
+  {
+   "source": "commit_message",
+   "commit": "eb9b0dfa6e",
+   "checkpoint": "ae4dc0e79f92",
+   "text": "Treat CI=false as \"not CI\" for prompt gating\n\nReviewer flag: `os.Getenv(\"CI\") != \"\"` also blocks when a developer sets\nCI=false to override an inherited value — a common sandbox/devcontainer\nworkaround. Match the widely used `is-ci` convention: any non-\"false\"\nvalue blocks, \"false\" doesn't.\n\nInlined the two-line check (no helper) and added a targeted test pair:\nCI=true blocks, CI=false doesn't. The CI=false assertion relies on\nENTIRE_TEST_TTY=1 to stand in for a real /dev/tty in the host."
+  },
+  {
+   "source": "transcript",
+   "commit": "eb9b0dfa6e",
+   "checkpoint": "ae4dc0e79f92",
+   "text": "[user] Missing CI environment variable guardrail check\nMedium Severity\n\nMaybeAutoUpdate and CanPromptInteractively never check the CI environment variable, despite both the PR description and the new auto-update.md documentation explicitly listing it as a guardrail. On CI runners that happen to have /dev/tty available (self-hosted runners, some Docker configs), the interactive huh prompt will fire and hang the pipeline waiting for input.\n[assistant] Adding `CI` env guardrail to `CanPromptInteractively` centralizes fix—covers auto-update plus every other interactive caller.\n[assistant] Fix in `cmd/entire/cli/interactive/interactive.go:45`. Central guardrail — `CI=<any>` short-circuits `CanPromptInteractively()` before the `/dev/tty` probe, so auto-update and all other interactive callers stay silent on self-hosted runners and Docker CI with TTY. `ENTIRE_TEST_TTY` still takes priority (first check), so existing tests unaffected.\n\nAdded tests:\n- `TestCanPromptInteractively_CIEnv` — unit guardrail\n- `TestMaybeAutoUpdate_CIEnv` — end-to-end: no installer call when `CI=true`\n\nTests pass. Lint clean.\n[assistant] Merged `origin/main` into `auto-update`, resolved 6 conflicts (all comment-wording overlap + my `CanPromptInteractively` CI branch), restored a `//nolint:ireturn` directive that a previous lint auto-fix had wrongly stripped. Lint clean, affected tests green. Pushed `bd23fc5b5`.\n[user] Check CI status on PR #997 (commit f666a0935). Run `gh pr checks 997` and report whether the previously-failing jobs `test` and `test-integration (b)` are now passing. If they're still running, wait another couple minutes and check again. If they failed, dig into the logs and fix. Context: I fixed a CI-env / pty-test interaction by setting ENTIRE_TEST_TTY=1 in cmd/entire/cli/integration_test/interactive.go — the issue was that GitHub Actions sets CI=true, which the new CanPromptInteractively guardrail honors, so the spawned pty subprocess couldn't prompt interactively."
+  },
+  {
+   "source": "prompt",
+   "commit": "eb9b0dfa6e",
+   "checkpoint": "ae4dc0e79f92",
+   "text": "ok\n\n---\n\nfix conflics with main\n\n---\n\ntest are ok ?\n\n---\n\nwhat happens if the user says NO to upgrade? when do we display the message next time ?\n\n---\n\nHow other like stripe or codex handles it?\n\n---\n\nOkey, this is what other do:\n  ┌─────────────────────┬──────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────┐\n  │         CLI         │                      Style                       │                                On decline / ignore                                │\n  ├─────────────────────┼──────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────┤\n  │ Stripe              │ Banner only, every run                           │ Banner eve"
+  },
+  {
+   "source": "commit_message",
+   "commit": "610df29011",
+   "checkpoint": "01M4B3H72A67CR7XA6CNC897V5",
+   "text": "Report legacy shadow branches in doctor instead of deleting them\n\nSession start deleted strict-shape legacy shadow branches\n(entire/<7+hex>-<6hex>) once per repository, recording a marker in the\ngit common dir. Deleting refs behind the user's back on an ordinary\nsession start is not something an upgrade should do, so that pass goes:\nremoveLegacyShadowBranches, CleanupLegacyShadowBranches, its marker,\ndeleteLegacyShadowBranchesIfUnchanged and checkedOutBranches are removed\nwith their tests. gitrepo.ParseWorktreeBranches stays; the resume picker\nuses it.\n\n`entire doctor` gains a check that reports the strict-shape branches,\nnames `entire clean` as the remedy, and deletes them itself under\n--force or a confirmed prompt (doctor's existing fix flag; there is no\n--fix). Deletion goes through DeleteBranchCLI (`git branch -D`), which\nrefuses a branch checked out in any worktree; doctor reports such a\nbranch and keeps it. `entire clean` is unchanged. README.md and\ndocs/security-and-privacy.md said the branches are deleted automatically\nat the first session start, and implied plain `entire clean` removes the\nbare entire/<commit> form; plain clean removes only the strict form and\n--all also removes the bare one.\n\nChangelog (migrations):\n\nTurn ends no longer write shadow branches (entire/<commit>-<worktree>): pending work is tracked in session state and checkpoints are written only when you commit. Branches left by older versions are not removed automatically. entire doctor reports them,"
+  },
+  {
+   "source": "transcript",
+   "commit": "610df29011",
+   "checkpoint": "01M4B3H72A67CR7XA6CNC897V5",
+   "text": "[user] t` (around `:1673`). |\n  | FilesTouched | `:1610` | `state.FilesTouched` (not the tree) | The live path uses `s.resolveFilesTouched(ctx, state)` (around `:1685`). |\n  | `CondenseSessionByID` (doctor `doctor.go:262,304`; sweep `session_sweep.go:149`) | `manual_commit_condensation.go:2115-2145` | ref existence | **No.** With no shadow and no task content it calls `clearSessionStateLocked` and discards the state, even if a live transcript exists. |\n  | `CondenseAndMarkFullyCondensed` (session-end hook: `lifecycle.go:1522` `condenseEndedSession`, `:1846` `handleSubagentStopFinal`) | `prepareEagerC\n[user] cluded FullyCondensed at HEAD now check it explicitly:\n    - the sweep;\n    - `IsCondensableEndedSession` in `strategy/manual_commit_session.go`;\n    - doctor's `classifySession` ENDED branch in `cli/doctor.go`.\n  - Sites that counted any task record regardless of FullyCondensed (old `hasEagerCondensationContent` or `HasTaskContent`) match HEAD again:\n    - `PrepareSessionEndCondensation`, `prepareEagerCondensation` and the reserved check in `CondenseAndMarkFullyCondensed`, each after the existing FilesTouched check;\n    - `CondenseSessionByID`'s clear gate;\n    - `isOrphanedSessionState`;\n   "
+  },
+  {
+   "source": "commit_message",
+   "commit": "439be1e3e9",
+   "checkpoint": "3ee2f4dbe270",
+   "text": "status, doctor: finalize sessions whose agent has exited\n\nExtract endSessionNow — the markSessionEnded + eager-condense sequence\nthe SessionStop hook already runs — and share it with a new\nfinalizeExitedSessions sweep, so the hook and the sweep stay in lockstep.\nmarkSessionEnded gains an optional guard so the sweep re-checks\nOwnerExited on the freshly-loaded state under the session-state lock,\nclosing a TOCTOU race where a turn could revive a session between the\nlist snapshot and the finalize.\n\nentire status (human and --json) and entire doctor run the sweep up\nfront, finalizing any ACTIVE session whose owner process is gone instead\nof leaving it \"active\" until the 1h StuckActiveThreshold. After\nfinalizing, the sweep reloads each session from disk so callers see the\ntrue post-finalize state (condense is fail-open, so StepCount/\nFullyCondensed are never assumed). Both surfaces also label such sessions\n\"exited\" (human output, status --json, doctor's stuck-session reason) as\na fallback when finalization can't run."
+  },
+  {
+   "source": "transcript",
+   "commit": "439be1e3e9",
+   "checkpoint": "3ee2f4dbe270",
+   "text": "[assistant] The session-liveness problem is clear now: a session is marked `PhaseActive` during an agent turn, and if the agent crashes (or the machine reboots / terminal closes) mid-turn, no `TurnEnd`/`SessionStop` hook fires — so the session stays `ACTIVE` forever. Today the only mitigation is `IsStuckActive()`, a coarse 1-hour timeout (`state.go:402`), consumed by `status.go:382` and `doctor.go:213`.\n\nThe \"whose PID\" question decides correctness, so let me check how hooks are actually invoked (the hook process's parent should be the agent):\n[assistant] All three claims check out: `x/sys v0.46.0` is already a dependency and exposes `SysctlKinfoProc`; `CondenseSessionByID` sets `PhaseIdle` (not ended); and `runSessionsFix` prompts per-session (no top-level confirm). Let me fold the valid feedback into the plan.\n[assistant] Now doctor.go — the up-front sweep in `runSessionsFix` and the exited branch in `classifySession`:"
+  },
+  {
+   "source": "prompt",
+   "commit": "439be1e3e9",
+   "checkpoint": "3ee2f4dbe270",
+   "text": "yes, push now and open the PR\n\n---\n\ncan you check the comments on the PR and the finding on the trail, also lint is failing"
+  }
+ ],
+ "cost": {
+  "usd": 0.052459,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 240,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 12497
+ },
+ "trace_id": "771cec8bf08772073d05c901049e7f79",
+ "error": null,
+ "trace_spans": 6
+}

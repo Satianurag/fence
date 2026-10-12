@@ -1,0 +1,74 @@
+{
+ "issue": 2201,
+ "title": "auth-go lock dir isolation doesn't cover spawned binaries",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The evidence concerns the testdirs introduction and says spawned binaries are isolated via ENTIRE_CONFIG_DIR and XDG_CACHE_HOME, but never mentions the auth-go lock dir or macOS ignoring XDG_CACHE_HOME. The gap in spawned-binary coverage for the lock dir was not a chosen behaviour; it was an oversight.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 2,
+  "symbols_named": 10,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/auth/refresh.go",
+    156,
+    156,
+    "file:line"
+   ],
+   [
+    "internal/testdirs/testdirs.go",
+    26,
+    29,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/auth/refresh.go",
+    156,
+    161,
+    "func:tokenManagerLockDir"
+   ]
+  ],
+  "lines": 11,
+  "lines_linked": 4,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "4801b30bba",
+   "checkpoint": "83fe3fd21287",
+   "text": "tests: never touch the user's real config, cache, or keychain\n\nA test fixture (bob@core.example.com) leaked into a developer's real\n~/.config/entire/contexts.json. Unit tests isolated config access only\nby per-test convention (t.Setenv), and the integration/e2e harnesses\nspawned the real entire binary with the developer's real environment —\nno ENTIRE_CONFIG_DIR, no XDG_CACHE_HOME, real HOME, real OS keychain.\n\nDefense in depth:\n\n- internal/testdirs (new): under `go test`, resolution of the config\n  dir, cache dir, and token store falls back to a throwaway per-process\n  temp directory when the explicit env override is unset, so an\n  unisolated test can never read or write real user state.\n- Wired into contexts.DefaultConfigDir, discovery.DefaultCacheDir,\n  versioncheck, and the tokenstore default backend (which previously\n  defaulted to the real OS keyring even under test).\n- versioncheck now honors ENTIRE_CONFIG_DIR before falling back to\n  ~/.config/entire, so one env var isolates every config-dir surface.\n- Integration and e2e TestMains export ENTIRE_CONFIG_DIR,\n  XDG_CACHE_HOME, and file-backed token-store env vars process-wide;\n  spawned binaries (where testing.Testing() is false) inherit them\n  through every os.Environ()-based env builder.\n- CLAUDE.md documents the isolation rules for future harnesses."
+  },
+  {
+   "source": "transcript",
+   "commit": "4801b30bba",
+   "checkpoint": "83fe3fd21287",
+   "text": "[user] I just noticed my real, live, auth context list contains \"example.com\":\n\n09:14:54 (git) paul/cor-393-de...▲ $ entire auth contexts\n   CONTEXT                           HANDLE      LOGIN SERVER\n*  eu.auth.partial.to                toothbrush  https://eu.auth.partial.to\n   github:toothbrush@localhost:8180  toothbrush  https://localhost:8180\n   core.example.com                  bob         https://core.example.com\n\n\nmake sure our tests are using a contexts.json (and other config files) safely tucked away in 'mktemp -d' somewhere.  DO NOT mess with the user's real life config.  they might be using\n[assistant] **Done — committed as `4801b30bba9` (not pushed). Tests can no longer touch your real config, cache, or Keychain, in-process or via spawned binaries.**\n\n**How the leak was possible:**\n- Unit tests were isolated only by convention — every test had to remember `t.Setenv(\"ENTIRE_CONFIG_DIR\", ...)`. One forgotten line meant writes to your real `~/.config/entire/contexts.json`. The `core.example.com`/`bob` fixture matches `cmd/entire/cli/auth/contexts_test.go`; the multi-context tests landed ~May 30, so the pollution most likely came from a dev-loop iteration before isolation was in place.\n- Worse,"
+  },
+  {
+   "source": "prompt",
+   "commit": "4801b30bba",
+   "checkpoint": "83fe3fd21287",
+   "text": "I just noticed my real, live, auth context list contains \"example.com\":\n\n09:14:54 (git) paul/cor-393-de...▲ $ entire auth contexts\n   CONTEXT                           HANDLE      LOGIN SERVER\n*  eu.auth.partial.to                toothbrush  https://eu.auth.partial.to\n   github:toothbrush@localhost:8180  toothbrush  https://localhost:8180\n   core.example.com                  bob         https://core.example.com\n\n\nmake sure our tests are using a contexts.json (and other config files) safely tucked away in 'mktemp -d' somewhere.  DO NOT mess with the user's real life config.  they might be using the tool while the tests are running."
+  }
+ ],
+ "cost": {
+  "usd": 0.012865,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 167,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 2781
+ },
+ "trace_id": "5d3916675fc7e6a56642d6c88f2ac4df",
+ "error": null,
+ "trace_spans": 6
+}

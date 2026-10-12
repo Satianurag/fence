@@ -1,0 +1,98 @@
+{
+ "issue": 2686,
+ "title": "Control-plane HTTP client does not honor HTTP_PROXY/HTTPS_PROXY",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.85,
+  "rationale": "The transport was copied verbatim from entiredb, and the later commit only adjusted dial timeouts. Neither the commit messages nor the transcripts show anyone deciding that proxy environment variables should be ignored, so the missing `Proxy` field looks like an oversight.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 3,
+  "symbols_named": 15,
+  "spans": 4,
+  "span_list": [
+   [
+    "internal/entireclient/httpclient/transport.go",
+    95,
+    103,
+    "func:newTransport"
+   ],
+   [
+    "internal/coreapi/cross_juris_client.go",
+    26,
+    37,
+    "func:newCrossJurisHTTPClient"
+   ],
+   [
+    "cmd/entire/cli/versioninfo/transport.go",
+    31,
+    36,
+    "func:WrapTransport"
+   ],
+   [
+    "internal/entireclient/httpclient/transport.go",
+    84,
+    86,
+    "func:NewTransport"
+   ]
+  ],
+  "lines": 30,
+  "lines_linked": 12,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "4073bb41e9",
+   "checkpoint": "647feebd712d",
+   "text": "Vendor git-remote-entire protocol into the CLI, dispatch on argv[0]\n\nMove the git remote-helper that powers `entire://` clones out of\nentiredb and into the CLI so a single binary can serve both roles:\nwhen invoked as `git-remote-entire` (via a shipped symlink), `main()`\nbranches into the helper protocol loop before any cobra/stdout\nmachinery runs, since git parses our stdout as a strict pkt-line\nstream.\n\nCopied verbatim (import paths rewritten):\n  - internal/remotehelper/{githelper,gitproto,transport,replicas,\n    debuglog,httpdebug} — the protocol loop, failover transport, and\n    replica cache.\n  - internal/entireclient/{discovery,httpclient} — the two\n    self-contained client packages transport depends on.\n\nAdaptations:\n  - dropped the antithesis assertion from transport/proxy.go (no\n    fuzzer in this repo).\n  - replaced entire.io/version.GitRemoteHelperAgent() with a\n    githelper.Agent var the entrypoint stamps from versioninfo.\n  - wired auth to the CLI's existing single-context\n    auth.RepoScopedToken. Full multi-context resolution (contexts.json\n    + cluster discovery) is a follow-up; this stage gets a working\n    `git clone entire://` for the current login.\n\nAdds github.com/gofrs/flock (used by discovery's on-disk cache).\n\nscripts/entire-dev now builds/runs the ./cmd/entire package instead of\ncmd/entire/main.go alone — package main is now split across main.go and\nremotehelper.go, and naming a single file left the dispatch out and\nbroke the local-dev git hooks.\n\nT"
+  },
+  {
+   "source": "transcript",
+   "commit": "4073bb41e9",
+   "checkpoint": "647feebd712d",
+   "text": "[assistant] Transport also pulls `client/discovery` (`HostInCluster`, `ParseReplicas`) and `client/httpclient` (`NewTransport`). Let me check those two and confirm the full Stage 1 closure, then I'll start copying."
+  },
+  {
+   "source": "prompt",
+   "commit": "4073bb41e9",
+   "checkpoint": "647feebd712d",
+   "text": "this branch is implementing an openapi client for entiredb (../entiredb) it adds new commands to create a repo or a mirror, to actually make the cloning work we also need a git helper, the entiredb repo has git-remote-entire for this. Ideally we ship both with the cli (this repo) in the future. I wonder if we could just make this an alias of the entire cli and make it behave like the helper if invoked by the alias name? this way we only need to add a symlink and don't need to ship two binaries?\n\n---\n\n/Users/soph/Work/entire/devenv/entiredb <- is the right driectory\n\n---\n\nin case 1, the contexts.json: where do the secrets live?\n\n---\n\nok, let's do the proper thing"
+  },
+  {
+   "source": "commit_message",
+   "commit": "fcc4748d7b",
+   "checkpoint": "926e86709119",
+   "text": "Loosen connect timeouts for slow links\n\nBump the default per-host TCP connect timeout 2s -> 4s (satellite links\nsaw no node respond under 2s on push), and give the cold replica-discovery\nprobe its own more patient 10s budget — that first \"which nodes serve this\nrepo\" contact pays a cold DNS+TLS handshake to a possibly-distant entry LB\nand has no failover to fall back on, so a tight budget fails the whole\nclone/fetch. Replica failover keeps the short default so dead nodes are\nstill skipped quickly.\n\nAn explicit ENTIRE_CONNECT_TIMEOUT_SECONDS now overrides every connect\ntimeout (discovery included) via os.LookupEnv, instead of being floored.\n\ngit-remote-entire's auth client (cluster /.well-known discovery + token\nexchange) also uses the patient discovery budget: it talks to single\ncontrol-plane hosts with no failover."
+  },
+  {
+   "source": "transcript",
+   "commit": "fcc4748d7b",
+   "checkpoint": "926e86709119",
+   "text": "[assistant] rall HTTP timeout. The initial cold request to the entry domain (DNS + TLS to a possibly distant region/LB) intermittently takes >2s to connect, which trips it.\n\n- **`internal/entireclient/httpclient/transport.go:24`** — `DefaultDialTimeout = 2 * time.Second`. This is the per-host connect budget, used by the transport that `git-remote-entire` builds (`cmd/git-remote-entire/main.go:107`).\n- The 30s value the broader search surfaced is the whole-request `http.Client.Timeout` — not what's flaking.\n\n## The catch\n\nThat 2s dial timeout is **shared with failover**. Its whole point (per the code comme\n[assistant] ), which is shared between the cold \"which nodes serve this repo\" probe and dead-node failover. Per your choice, I split them rather than slowing failover down.\n\n- **`internal/entireclient/httpclient/transport.go`** — added `DefaultDiscoveryDialTimeout = 10s`, a `DiscoveryDialTimeout()` (honors `ENTIRE_CONNECT_TIMEOUT_SECONDS`, never returns *less* than 10s), and `NewDiscoveryTransport()`. `DefaultDialTimeout` stays 2s.\n- **`internal/remotehelper/transport/proxy.go`** — the proxy now builds a second, wrapped transport (`discoveryTransport`) with the 10s budget. `noRedirectClient()` (the cold i\n[assistant] All green. Done.\n\n## Summary of this round\n\n**1. Env override now applies to all connect timeouts (`os.LookupEnv`)** — `internal/entireclient/httpclient/transport.go`\n- New `envConnectTimeout()` helper uses `os.LookupEnv`. When `ENTIRE_CONNECT_TIMEOUT_SECONDS` is set to a positive int, both `DialTimeout()` and `DiscoveryDialTimeout()` return that exact value — no flooring. Unset/blank/invalid falls back to each function's own default.\n\n**2. Default dial timeout 2s → 4s** — for your satellite-internet push problem.\n- `DefaultDialTimeout = 4 * time.Second`. `DefaultDiscoveryDialTimeout` stays 10"
+  },
+  {
+   "source": "prompt",
+   "commit": "fcc4748d7b",
+   "checkpoint": "926e86709119",
+   "text": "when cloning or fetching an Entire repo via git-remote-entire, every so often i hit a timeout on the initial \"which nodes serve this repo\" request.  That kinda sucks.  I think we should loosen the default timeout a bit, maybe, say, 10s?\n\n---\n\n> never returns less than 10s\n\ni think if a user sets ENTIRE_CONNECT_TIMEOUT_SECONDS (use os.LookupEnv to check) we should use that timeout value for all timeouts, not just one or the other, or apply a minimum.\n\nlet's also turn the 2s default into 4s default.  i have had trouble pushing when on satellite internet (no nodes respond <2s)."
+  }
+ ],
+ "cost": {
+  "usd": 0.021981,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 125,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 5165
+ },
+ "trace_id": "08bb13f678fc688639cd71b5c0a1162e",
+ "error": null,
+ "trace_spans": 6
+}

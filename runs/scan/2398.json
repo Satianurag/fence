@@ -1,0 +1,68 @@
+{
+ "issue": 2398,
+ "title": "Checkpoint linking fails for non-ASCII filenames",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence shows getStagedFiles was changed to use native git diff for performance, and later to `--raw -z` for submodule handling. None of it mentions quoted non-ASCII paths or choosing to compare Git's display-quoted output with literal paths. The behaviour reported in the issue was never decided.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 3,
+  "symbols_named": 2,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    2994,
+    3007,
+    "func:getStagedFiles"
+   ]
+  ],
+  "lines": 14,
+  "lines_linked": 9,
+  "checkpoints": 3
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "35dec307fe",
+   "checkpoint": "1e3fe3c13bbf",
+   "text": "Address pull request feedback"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7d954e471a",
+   "checkpoint": "b4ec64cad4b6",
+   "text": "fix: optimize prepare-commit-msg hook performance for large repos\n\nReplace go-git's worktree.Status() with native `git diff --cached` in\ngetStagedFiles (constant time vs O(all files)), cache the staged files\nlist across sessions to eliminate redundant calls, and read prompt.txt\ndirectly from the shadow branch tree instead of parsing the full\ntranscript in getLastPrompt."
+  },
+  {
+   "source": "commit_message",
+   "commit": "1ccb5a25d2",
+   "checkpoint": "01M4B3AJJ0GK3SA6P35M4Z62TE",
+   "text": "Keep submodule gitlinks out of FilesTouched and staged overlap\n\nA dirty submodule pointer reached FilesTouched through the unconditional\ngit-status merge at turn end. prepare-commit-msg then saw the staged\ngitlink as a new file in FilesTouched and stamped a trailer, PostCommit\ncould not match it to anything, and the path never left FilesTouched,\nkeeping the session pending.\n\ndropUntrackablePaths now also drops any path whose HEAD tree or index\nentry has mode 160000 (the index covers a submodule added but not yet\ncommitted), on the same routes as the ignore filter. getStagedFiles\nswitches from `git diff --cached --name-only -z` to `--raw -z` and skips\nentries whose staged mode, or HEAD mode for a staged removal, is\n160000; a rename or copy still reports its new path. Mode-based\ndetection is platform independent.\n\nTests use a real `git submodule add`: a moved submodule pointer stays\nout of FilesTouched on the turn-end and task-record routes, and a staged\nsubmodule add lists only .gitmodules as staged. A parser test covers\nmodify, add, delete, rename and the three gitlink cases."
+  },
+  {
+   "source": "transcript",
+   "commit": "1ccb5a25d2",
+   "checkpoint": "01M4B3AJJ0GK3SA6P35M4Z62TE",
+   "text": "[user] t_git.go:58` (SaveStep), `:250` (SaveTaskStep), `manual_commit_pending.go:36`.\n  - **`migrateShadowBranchIfNeeded`**: `manual_commit_git.go:51` (SaveStep, Stop hook turn end), `:246` (SaveTaskStep), `manual_commit_hooks.go:3081` (InitializeSession, turn start).\n  - **`deleteShadowBranch`**: only `manual_commit_hooks.go:1271` (PostCommit cleanup).\n  - **`ListShadowBranches`**:\n    - `strategy/manual_commit.go:211` (`ListOrphanedItems`, which has no non-test callers)\n    - `strategy/cleanup.go:500` (`ListAllItems`, used by `entire clean --all`)\n    - `setup.go:3063` (`countShadowBranches`) and `\n[user]  `CalculatePromptAttribution` reads the last shadow tree for every changed worktree file, not only touched ones (`manual_commit_attribution.go:520-555`). The tree comes from the shadow ref (`strategy/manual_commit_hooks.go:~3185-3206`).\n  - **The content-overlap fixture overlays HEAD.** `createShadowBranchWithContent` lays the given files over HEAD's flattened tree (`strategy/content_overlap_test.go:1103-1121`).\n  - **Subagent completions already avoid the shadow branch.** Several lifecycle tests assert that subagent completions write a *task record, not a shadow task step* (`lifecycle_test.go\n[assistant]  filesystem copy, then to the transcript.\n- **Baseline for line attribution.** Read twice. At prompt start the shadow tip is diffed against the worktree to count human edits (`cmd/entire/cli/strategy/manual_commit_hooks.go:3191`). At commit time, base to shadow and shadow to HEAD give agent lines versus post-stop human edits. Both fallbacks are silent and wrong: HEAD is substituted at commit (`manual_commit_condensation.go:1422`), so human edits after the last stop are credited to the agent, and the base tree is substituted at prompt start, so earlier agent work is counted as human.\n- **Conten"
+  }
+ ],
+ "cost": {
+  "usd": 0.015253,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 133,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 3463
+ },
+ "trace_id": "edf52d0797c2b41b8a240557a56a501d",
+ "error": null,
+ "trace_spans": 6
+}

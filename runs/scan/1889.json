@@ -1,0 +1,86 @@
+{
+ "issue": 1889,
+ "title": "dispatch returns 404 for ready EU mirror while regional recap sees checkpoints",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers commits about routing `entire api --to cell` through the selected login context and integrating auth-go. Neither mentions cloud dispatch or choosing to use the global base URL instead of the repository's mirror cell. Nobody decided that dispatch should skip regional resolution, so this looks like an oversight.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 2,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/api/base_url.go",
+    55,
+    61,
+    "func:BaseURL"
+   ],
+   [
+    "cmd/entire/cli/auth/client.go",
+    169,
+    194,
+    "func:BaseURL"
+   ]
+  ],
+  "lines": 33,
+  "lines_linked": 3,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "6cd9aa01f3",
+   "checkpoint": "01M2GHN3ARZSA20QXJ09E2P1NC",
+   "text": "Route `entire api --to cell` through the selected login context (COR-1634)\n\n`entire api --to cell` and `-j <jurisdiction>` always aimed at production:\nthe cell client discovered a login against api.BaseURL(), which with no\nENTIRE_API_BASE_URL is the entire.io apex, so a staging (partial.to) login\nselected via --context was refused with \"API host entire.io does not accept\nthe login selected by --context\" and every staging cell was unreachable\nthrough the CLI. `--to core` already followed the context; only the cell\npath was wrong.\n\nThe cell subject now follows the selected context (--context, else\n$ENTIRE_CONTEXT, else current_context) whenever no data host is configured,\nreusing the resolver `auth token --jurisdiction` already used for the same\nreason. That context's core is both the login and the core whose cluster\ncatalog supplies the cell apiUrl, so a staging login lists staging's catalog\nand lands on a staging cell; production behaviour is unchanged because a\nprod context resolves to the same catalog it did before. An explicit\nENTIRE_API_BASE_URL still discovers a login against the named data host —\nthat is the user naming a host, and its trusted-issuer document decides\nwhich saved login may authenticate it.\n\n`-j <slug>` with no matching cell now fails naming the core consulted and\nthe jurisdictions it serves, still unwrapping to ErrNoCellForJurisdiction\nfor the callers that fall back on it. api.BaseURLOverride reports whether\nthe data host was set, so the production defau"
+  },
+  {
+   "source": "transcript",
+   "commit": "6cd9aa01f3",
+   "checkpoint": "01M2GHN3ARZSA20QXJ09E2P1NC",
+   "text": "[assistant] I found the bug: `resolveStoredCellSubject` looks up a login against `api.BaseURL()` (default entire.io) rather than the selected context. Now checking how `--to core` handles context, `api.BaseURL`, `activeContext`, and existing tests.\n[assistant] Done. Committed as `6cd9aa01f` on `alisha/cor-1634-api-cell-context`. `DAY_DRIVER_TASK.md` left untracked as before.\n\n**Root cause:** `auth.resolveStoredCellSubject` discovered a login against `api.BaseURL()`, which defaults to the entire.io apex when `ENTIRE_API_BASE_URL` is unset. Discovery validates the selected context against that host's trusted issuers, so a partial.to login was refused and the cell was always production's.\n\n**Fix** (`cmd/entire/cli/auth/cell_data_api.go`):\n- With no `ENTIRE_API_BASE_URL`, the cell path now uses the selected context (`--context` / `$ENTIRE_CONTEXT` / cur"
+  },
+  {
+   "source": "prompt",
+   "commit": "6cd9aa01f3",
+   "checkpoint": "01M2GHN3ARZSA20QXJ09E2P1NC",
+   "text": "Read DAY_DRIVER_TASK.md and implement the ticket end to end. Commit your work with clear messages when done."
+  },
+  {
+   "source": "commit_message",
+   "commit": "49dca720e4",
+   "checkpoint": "6d696fc55440",
+   "text": "Integrate auth-go library: deviceflow shim + tokenstore.Store + RFC 8693 exchange\n\nPins github.com/entireio/auth-go to its hardened OAuth client (PR #5\nhead), which validates Resource as an origin URL, refuses unsigned JWTs\n(alg:none), enforces HTTPS unless the host is loopback, validates the\nverification_uri returned by the AS, and centralises OAuth error\nparsing with sanitised descriptions.\n\nauth/client.go: now a thin shim over deviceflow.Client. Preserves the\nhistorical DeviceAuthStart/DeviceAuthPoll types as aliases / equivalent\nshapes so login.go's polling switch keeps working. Unknown OAuth error\ncodes are surfaced through DeviceAuthPoll.Error/ErrorDescription so\nlogin.go can fail fast on terminal rejections instead of treating them\nas transient.\n\nauth/store.go: implements tokenstore.Store (SaveTokens/LoadTokens/\nDeleteTokens) so it can be passed to tokenmanager.New. Adds a defensive\nJSON-shape check on read — pre-shim entries are opaque token strings,\nnever JSON; a JSON blob in the keyring is corruption and must not be\nput on the wire as a bearer.\n\nauth/exchange.go: new package-level Manager wired from CurrentProvider,\nAuthBaseURL, and NewStore. Exposes TokenForResource(ctx, url) and Token\n(ctx, req); both go through the manager's same-host shortcut, JWT-aud\nshortcut, and STS exchange dispatch as appropriate. SetManagerForTest()\ntakes a mutex so concurrent tests can swap without racing.\n\nSingle-host deployments hit the same-host shortcut and never call STS;\nsplit-host "
+  },
+  {
+   "source": "transcript",
+   "commit": "49dca720e4",
+   "checkpoint": "6d696fc55440",
+   "text": "[assistant] Now let me update the api/client.go for split-host (NewClientWithBaseURL, WithAuthTokensPath, empty-token guard) and api/auth_tokens.go for the configurable path.\n[assistant] Now I'll update `auth.go`, `logout.go`, `login.go`, and `api_client.go` together:\n[assistant] Now route auth-token endpoints through AuthBaseURL with the configured AuthTokensPath:\n[assistant] Now update `api_client.go` to use ctx and the token manager:\n[assistant] Now update the polling switch to use the new ErrorDescription, and add validation, and use AuthBaseURL for keying the keyring entry:\n[assistant] Now add tests for AuthBaseURL and login validation:\n[assistant] d in**: `go.mod` pinned to `github.com/entireio/auth-go v0.1.1-0.20260520123811-da94c52ef430` (PR #5 head, with the hardened OAuth checks). Go bumped 1.26.2 → 1.26.3 per the lib's `go.mod`.\n- **`auth/client.go`**: now a thin shim over `deviceflow.Client`, using `Transport` (not `HTTP`) per PR #5. Surfaces unknown OAuth codes through `DeviceAuthPoll.Error/ErrorDescription` so login fails fast on terminal rejections.\n- **`auth/store.go`**: implements `tokenstore.Store`. JSON-shape rejection on read so corrupt entries don't end up as `Bearer …`. Keys tokens by `AuthBaseURL()`.\n- **Split-host conf\n[assistant]  **`newAuthHostAPIClient(token)` helper** in `auth.go` — replaces three copy-paste sites (`defaultListTokens`, `defaultRevokeTokenByID`, `defaultRevokeCurrentToken`) that each wrote `api.NewClientWithBaseURL(token, api.AuthBaseURL()).WithAuthTokensPath(auth.CurrentProvider().AuthTokensPath)`.\n\n4. **Skip redundant URL parse in single-host mode** — `requireSecureBaseURL` (`auth.go`) and `NewAuthenticatedAPIClient` (`api_client.go`) now short-circuit the second `RequireSecureURL` when `AuthBaseURL() == BaseURL()`, which is the common case.\n\n5. **Reuse `dataURL` local in `api_client.go`** — `Token"
+  },
+  {
+   "source": "prompt",
+   "commit": "49dca720e4",
+   "checkpoint": "6d696fc55440",
+   "text": "based on this I'd like to switch the auth to the new token in the cli https://github.com/entireio/auth-go/pull/5 also take a look at https://github.com/entireio/cli/pull/1153 which did this inline before, but now we should use the library\n\n---\n\n/simplify\n\n---\n\ncan you do meaningful commits"
+  }
+ ],
+ "cost": {
+  "usd": 0.019065,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 139,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4401
+ },
+ "trace_id": "cb85e6dcba652cb986cdc81a1f7e80a7",
+ "error": null,
+ "trace_spans": 6
+}

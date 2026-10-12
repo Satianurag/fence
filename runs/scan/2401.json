@@ -1,0 +1,246 @@
+{
+ "issue": 2401,
+ "title": "ULID checkpoint refs become permanently unreadable when their shard case-collides with an existing shard on a case-insensitive filesystem (macOS/Windows)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "decision",
+  "confidence": 0.72,
+  "rationale": "The last-two-characters, case-preserved shard rule was chosen deliberately: the commit collapsed ShardFor to one positional rule so no format detection could be computed inconsistently. ParseRef's strict shard check was also chosen on purpose, to reject mismatched shards. Nothing in the record considered case-insensitive filesystems, but the reported behaviour (exact-case shard matching) was explicitly intended.",
+  "quotes": [
+   {
+    "evidence_id": 18,
+    "source": "commit_message",
+    "commit": "dd6fdeb6f9",
+    "checkpoint": "d17074281105",
+    "quote": "Collapse it to a single positional rule: the last two characters, for both legacy\n12-hex IDs and 26-char ULIDs."
+   },
+   {
+    "evidence_id": 1,
+    "source": "commit_message",
+    "commit": "b01b59663f",
+    "checkpoint": "53f11b080581",
+    "quote": "rejecting a mismatched shard or extra path segments so a malformed\n  ref never resolves to the wrong bucket."
+   },
+   {
+    "evidence_id": 12,
+    "source": "commit_message",
+    "commit": "a75a7a8710",
+    "checkpoint": "175a19bd932b",
+    "quote": "keeping stored IDs canonical keeps ref names/shards deterministic."
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 4,
+  "symbols_named": 6,
+  "spans": 8,
+  "span_list": [
+   [
+    "cmd/entire/cli/checkpoint/id/id.go",
+    132,
+    138,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/refs_naming.go",
+    41,
+    60,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/id/id.go",
+    134,
+    140,
+    "func:ShardFor"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/id/id.go",
+    84,
+    87,
+    "func:isULID"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/id/id.go",
+    166,
+    172,
+    "func:Generate"
+   ],
+   [
+    "cmd/entire/cli/summarize/claude.go",
+    79,
+    116,
+    "func:Generate"
+   ],
+   [
+    "cmd/entire/cli/summarize/text_generator.go",
+    33,
+    56,
+    "func:Generate"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/refs_naming.go",
+    58,
+    77,
+    "func:ParseRef"
+   ]
+  ],
+  "lines": 127,
+  "lines_linked": 76,
+  "checkpoints": 13
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "b01b59663f",
+   "checkpoint": "53f11b080581",
+   "text": "Add per-checkpoint ref resolver (ShardFor + RefName/ParseRef)\n\nFirst slice of the per-checkpoint git-ref checkpoint store (#1471), on top of the\nmerged understanding layer. Pure naming/resolution; nothing constructs a ref\nstore yet.\n\n- id: re-add CheckpointID.ShardFor (first-2 chars for legacy hex, last-2 for a\n  ULID so the random suffix spreads evenly while the ID stays sortable) and the\n  CheckpointID.Kind() method. These were deferred out of the understanding-layer\n  PR (#1546) because sharding is a storage concern; they land here with their\n  consumer.\n- checkpoint: RefName builds refs/entire/checkpoints/<shard>/<id>; ParseRef\n  inverts it, rejecting a mismatched shard or extra path segments so a malformed\n  ref never resolves to the wrong bucket."
+  },
+  {
+   "source": "transcript",
+   "commit": "b01b59663f",
+   "checkpoint": "53f11b080581",
+   "text": "[assistant] -level plan for the agreed scope — a runnable `git-refs` primary behind config, in 3 reviewable PRs.\n\n---\n\n## PR 1 — ID kind + ref resolver (pure, no behavior change)\n\n**`cmd/entire/cli/checkpoint/id/id.go`**\n- Add `Kind(id) {Legacy, ULID}` detection (12 lowercase hex vs 26 Crockford base32).\n- Add ULID `Validate`; keep `Generate()` emitting **legacy hex** for now (switching generation touches the `Entire-Checkpoint:` trailer, Vogon regexes, and many tests — defer to a later PR; the refs store works fine on hex IDs).\n- `ShardFor(id) string` — first-2 for legacy, last-2 for ULID. Pure string, n\n[assistant] er` (off the phase2 base), one commit, **pure naming layer — no behavior change** (nothing constructs a ref store yet). `mise run fmt && lint` clean, affected package tests green.\n\n**`id` package** (`id.go`)\n- `KindOf` / `CheckpointID.Kind()` — classifies legacy 12-hex, 26-char Crockford-base32 ULID, or unknown.\n- `CheckpointID.ShardFor()` — asymmetric shard per your spec: legacy hex → **first 2** chars (keeps the v1 layout), ULID → **last 2** chars. Unknown/short fall back to prefix.\n\n**`checkpoint` package** (`refs_naming.go`)\n- `RefName(id)` → `refs/entire/checkpoints/<shard>/<id>` (full ID\n[assistant] ULID-ready; the **identity/generation/serialization/trailer/e2e** layers are all still 12-hex-only. Here's the precise audit:\n\n### ✅ What handles ULIDs today\n- `id.KindOf` / `CheckpointID.Kind` / `id.ShardFor` — classify + last-2 shard.\n- `checkpoint.RefName` / `ParseRef` — round-trip ULID refs (unit-tested).\n- e2e `checkpointShard` / `checkpointRefName` — `len==26 → last-2`.\n\n### ❌ What still rejects/ignores ULIDs (the blockers)\n1. **`Generate()`** (`id.go:118`) — emits 6 random bytes → 12-hex. ULIDs are *never produced*. So in practice every checkpoint is hex; a ULID only appears if injected"
+  },
+  {
+   "source": "prompt",
+   "commit": "b01b59663f",
+   "checkpoint": "53f11b080581",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "c0dd4af913",
+   "checkpoint": "deb0dd407fb7",
+   "text": "feat(summarize): add AI summary types and Claude CLI generator\n\nAdd infrastructure for generating AI-powered checkpoint summaries:\n\n- Add Summary, LearningsSummary, CodeLearning types to checkpoint package\n- Add Summary field to CommittedMetadata for persistence\n- Create SummaryGenerator interface for configurable LLM backends\n- Implement ClaudeCLIGenerator that shells out to `claude` CLI\n- Add BuildCondensedTranscript to extract user/assistant/tool entries\n- Add FormatCondensedTranscript for LLM-friendly formatting\n- Add contentTypeToolUse constant to transcript.go\n\nTests included for transcript condensation and Claude CLI generator.\n\nPart of ENT-108"
+  },
+  {
+   "source": "transcript",
+   "commit": "c0dd4af913",
+   "checkpoint": "deb0dd407fb7",
+   "text": "[assistant] ommittedMetadata` struct** (add new fields like `Intent`, `Outcome`, `Learnings`, `Friction`)  \n- Pros: Summaries travel with checkpoint, simple to read\n- Cons: Need to regenerate if schema changes\n\n**B) Store summaries in a separate `summary.json` file alongside `metadata.json`**  \n- Pros: Can version/regenerate independently, cleaner separation\n- Cons: Extra file to read/manage\n\n**C) Generate summaries on-demand only (don't persist)**  \n- Pros: Simplest storage, always fresh\n- Cons: Requires Claude CLI every time, slow for `explain` without `--generate`\n\nWhich storage approach do you prefer?\n[assistant] dLine int    `json:\"end_line,omitempty\"`\n    Finding string `json:\"finding\"`\n}\n\n// Add to CommittedMetadata:\nSummary *CheckpointSummary `json:\"summary,omitempty\"`\n```\n\n### 3. CLI Interface\n\n```bash\n# Generate summary for a specific checkpoint\nentire explain -c abc123 --generate\n\n# View existing summary (no regeneration)\nentire explain -c abc123\n```\n\n**Behavior:**\n- `--generate` requires `-c` (checkpoint flag) - error otherwise\n- If summary already exists, prompt to regenerate (or add `--force`?)\n- Shows spinner while Claude CLI runs\n\n### 4. Claude CLI Integration\n\n**New file: `cmd/entire/cli/s\n[assistant] Good points. Let me address both:\n\n### 1. Configurable LLM\n\nFor now, I'll create an interface that we hardcode to Claude CLI:\n\n```go\ntype SummaryGenerator interface {\n    Generate(ctx context.Context, input SummaryInput) (*CheckpointSummary, error)\n}\n\n// Initial implementation\ntype ClaudeCLIGenerator struct {\n    // Model, flags, etc. can be configured here later\n}\n```\n\nThis lets us swap in different backends (API direct, different models, local LLMs) without changing the calling code.\n\n### 2. Transcript Size\n\nThis is the key design question. Options:\n\n| Approach | Pros | Cons |\n|----------|--"
+  },
+  {
+   "source": "prompt",
+   "commit": "c0dd4af913",
+   "checkpoint": "deb0dd407fb7",
+   "text": "have a look at linear MCP-108, we will work on that here\n\n---\n\n[Request interrupted by user]\n\n---\n\nhave a look at linear ENT-108, we will work on that here\n\n---\n\nBase directory for this skill: /Users/alex/.claude/plugins/cache/claude-plugins-official/superpowers/4.1.1/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n## Overview\n\nHelp turn ideas into fully formed designs and specs through natural collaborative dialogue.\n\nStart by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design in small sections (200-300 words), checking after each section whether it looks right so far.\n\n## The Process\n\n**Understanding the idea:**\n- Check out the current project state first (files, docs, rece"
+  },
+  {
+   "source": "commit_message",
+   "commit": "04fe15c337",
+   "checkpoint": "2d8ad59ef395",
+   "text": "Refactor summary generation behind TextGenerator"
+  },
+  {
+   "source": "prompt",
+   "commit": "04fe15c337",
+   "checkpoint": "2d8ad59ef395",
+   "text": "I am wondering why we have claude specific code under agent generic package. is it the correct place ?\n\n---\n\nrethinking how this changes are desing. Can that logic be transparent behind a higher method that parses the result?\n\n---\n\nyes sketch it\n\n---\n\nbefore approving it, where are we using the textgenerator ?\n\n---\n\nwhat is de difference of \"func (c *ClaudeCodeAgent) GenerateText(ctx context.Context, prompt string, model string) (string, error) {\" and \"func (g *ClaudeGenerator) Generate(ctx context.Context, input Input) (*checkpoint.Summary, error) {\"\n\n---\n\nI think that summarizer should call the claude primitive generate text. Both methods are almos identical, and then, we can include the code agent.ExtractClaudeCLIResult as part of generate text primitive.\n\n---\n\nlet's do that, import age"
+  },
+  {
+   "source": "commit_message",
+   "commit": "53104661eb",
+   "checkpoint": "6d9f76bd01e9",
+   "text": "feat(summarise): use Sonnet model for summarisation\n\nDefault to Sonnet model which provides good quality summaries at lower\ncost than Opus, with 200K context window (1M available via sonnet[1m])."
+  },
+  {
+   "source": "transcript",
+   "commit": "53104661eb",
+   "checkpoint": "6d9f76bd01e9",
+   "text": "[assistant] ommittedMetadata` struct** (add new fields like `Intent`, `Outcome`, `Learnings`, `Friction`)  \n- Pros: Summaries travel with checkpoint, simple to read\n- Cons: Need to regenerate if schema changes\n\n**B) Store summaries in a separate `summary.json` file alongside `metadata.json`**  \n- Pros: Can version/regenerate independently, cleaner separation\n- Cons: Extra file to read/manage\n\n**C) Generate summaries on-demand only (don't persist)**  \n- Pros: Simplest storage, always fresh\n- Cons: Requires Claude CLI every time, slow for `explain` without `--generate`\n\nWhich storage approach do you prefer?\n[assistant] dLine int    `json:\"end_line,omitempty\"`\n    Finding string `json:\"finding\"`\n}\n\n// Add to CommittedMetadata:\nSummary *CheckpointSummary `json:\"summary,omitempty\"`\n```\n\n### 3. CLI Interface\n\n```bash\n# Generate summary for a specific checkpoint\nentire explain -c abc123 --generate\n\n# View existing summary (no regeneration)\nentire explain -c abc123\n```\n\n**Behavior:**\n- `--generate` requires `-c` (checkpoint flag) - error otherwise\n- If summary already exists, prompt to regenerate (or add `--force`?)\n- Shows spinner while Claude CLI runs\n\n### 4. Claude CLI Integration\n\n**New file: `cmd/entire/cli/s\n[user] : Added Summary types to checkpoint/checkpoint.go\n   - Task 2: Created summarize.go with SummaryGenerator interface, BuildCondensedTranscript, FormatCondensedTranscript\n   - Task 3: Created summarize_claude.go with ClaudeCLIGenerator\n   - Task 4: Added --generate and --force flags to explain.go\n   - Task 5: Added UpdateSummary persistence method to committed.go\n   - Task 6-8: Tests added\n   - Task 9: Lint and test runs\n\n4. **Key User Feedback**:\n   - \"should we be using the StripIDE code from textutil?\" - Yes, use existing textutil.StripIDEContextTags\n   - \"prefer subagents to save on the main"
+  },
+  {
+   "source": "prompt",
+   "commit": "53104661eb",
+   "checkpoint": "6d9f76bd01e9",
+   "text": "have a look at linear MCP-108, we will work on that here\n\n---\n\n[Request interrupted by user]\n\n---\n\nhave a look at linear ENT-108, we will work on that here\n\n---\n\nBase directory for this skill: /Users/alex/.claude/plugins/cache/claude-plugins-official/superpowers/4.1.1/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n## Overview\n\nHelp turn ideas into fully formed designs and specs through natural collaborative dialogue.\n\nStart by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design in small sections (200-300 words), checking after each section whether it looks right so far.\n\n## The Process\n\n**Understanding the idea:**\n- Check out the current project state first (files, docs, rece"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a75a7a8710",
+   "checkpoint": "175a19bd932b",
+   "text": "Validate ULID checkpoint IDs via oklog/ulid\n\nReplace the hand-rolled Crockford-base32 regex check in KindOf with\noklog/ulid's ParseStrict, the same library we'll use to generate ULIDs — so\nvalidation and generation agree by construction and we stop maintaining the\nalphabet by hand. It is also stricter than the char class: it rejects a\ntimestamp overflow (first character > 7).\n\nCanonical form only: isULID also requires v.String() == s, so lowercase and\nCrockford-normalized aliases (I/L→1, O→0) that ParseStrict tolerates are\nrejected — we only ever emit the 26-char uppercase canonical encoding, and\nkeeping stored IDs canonical keeps ref names/shards deterministic.\n\nULIDPattern stays as the loose extraction shape for scanning the Entire-Checkpoint\ntrailer (a regex is needed to find a candidate token in free text); the captured\ntoken is then authoritatively validated through this path. The now-unused\nulidRegex is removed. Adds the overflow case to the KindOf table."
+  },
+  {
+   "source": "transcript",
+   "commit": "a75a7a8710",
+   "checkpoint": "175a19bd932b",
+   "text": "[assistant] -level plan for the agreed scope — a runnable `git-refs` primary behind config, in 3 reviewable PRs.\n\n---\n\n## PR 1 — ID kind + ref resolver (pure, no behavior change)\n\n**`cmd/entire/cli/checkpoint/id/id.go`**\n- Add `Kind(id) {Legacy, ULID}` detection (12 lowercase hex vs 26 Crockford base32).\n- Add ULID `Validate`; keep `Generate()` emitting **legacy hex** for now (switching generation touches the `Entire-Checkpoint:` trailer, Vogon regexes, and many tests — defer to a later PR; the refs store works fine on hex IDs).\n- `ShardFor(id) string` — first-2 for legacy, last-2 for ULID. Pure string, n\n[assistant] er` (off the phase2 base), one commit, **pure naming layer — no behavior change** (nothing constructs a ref store yet). `mise run fmt && lint` clean, affected package tests green.\n\n**`id` package** (`id.go`)\n- `KindOf` / `CheckpointID.Kind()` — classifies legacy 12-hex, 26-char Crockford-base32 ULID, or unknown.\n- `CheckpointID.ShardFor()` — asymmetric shard per your spec: legacy hex → **first 2** chars (keeps the v1 layout), ULID → **last 2** chars. Unknown/short fall back to prefix.\n\n**`checkpoint` package** (`refs_naming.go`)\n- `RefName(id)` → `refs/entire/checkpoints/<shard>/<id>` (full ID\n[assistant] ULID-ready; the **identity/generation/serialization/trailer/e2e** layers are all still 12-hex-only. Here's the precise audit:\n\n### ✅ What handles ULIDs today\n- `id.KindOf` / `CheckpointID.Kind` / `id.ShardFor` — classify + last-2 shard.\n- `checkpoint.RefName` / `ParseRef` — round-trip ULID refs (unit-tested).\n- e2e `checkpointShard` / `checkpointRefName` — `len==26 → last-2`.\n\n### ❌ What still rejects/ignores ULIDs (the blockers)\n1. **`Generate()`** (`id.go:118`) — emits 6 random bytes → 12-hex. ULIDs are *never produced*. So in practice every checkpoint is hex; a ULID only appears if injected"
+  },
+  {
+   "source": "prompt",
+   "commit": "a75a7a8710",
+   "checkpoint": "175a19bd932b",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "ae59a15caf",
+   "checkpoint": "a768042b28b1",
+   "text": "move trailer handling into own package, make a type for CheckpointID"
+  },
+  {
+   "source": "transcript",
+   "commit": "ae59a15caf",
+   "checkpoint": "a768042b28b1",
+   "text": "[assistant] There are several trailer parsers in `paths`. For this refactor, we could just move `ParseCheckpointTrailer` to `checkpoint` since that's what we need for the type. The others can stay (or be moved to a `trailers` package later).\n\nSo the plan:\n1. Create `checkpoint/id.go` with `CheckpointID` type\n2. Move `ParseCheckpointTrailer` to `checkpoint` package (returns `CheckpointID`)\n3. Move `GenerateCheckpointID` from `paths` to `checkpoint` (returns `CheckpointID`)\n4. Keep `CheckpointPath` in `paths` but have it take `CheckpointID` (or make it a method on the type)\n\nSound good?\n[assistant] The user wants `trailers.ParseCheckpoint()` to return `id.CheckpointID`. Let me create a plan:\n\n1. Create `checkpoint/id/id.go` with:\n   - `CheckpointID` type\n   - `EmptyCheckpointID` constant\n   - `NewCheckpointID(string)` constructor with validation\n   - `MustCheckpointID(string)` panic version\n   - `GenerateCheckpointID()` for generating new IDs\n   - `ValidateCheckpointID(string)` validation function\n   - `(CheckpointID).String()` method\n   - `(CheckpointID).IsEmpty()` method\n   - `(CheckpointID).Path()` method - the sharded path\n   - The regex for validation\n\n2. Update `paths` to import `c\n[user] sion to create a separate `checkpoint/id` subpackage\n\n6. User confirmed: \"it should return id.CheckpointID\" for `trailers.ParseCheckpoint()`\n\n7. The work then shifted to:\n   - Creating `checkpoint/id/id.go` with the CheckpointID type\n   - Updating `trailers/trailers.go` to import `checkpoint/id` and remove duplicated code\n   - Updating `paths/paths.go` to add `CheckpointPath` function using `checkpoint/id`\n   - Updating `checkpoint/committed.go` to use `id.Validate` and `paths.CheckpointPath`\n\n8. Current state: Was in the middle of updating imports and fixing build errors after the restructure"
+  },
+  {
+   "source": "prompt",
+   "commit": "ae59a15caf",
+   "checkpoint": "a768042b28b1",
+   "text": "I first want to look at GetSessionLog in manual_commit_log.go, right now this has one param called `commitHash` but in 99% of the cases we actually pass in the checkpoint id from `Entire-Checkpoint` or `Checkpoint`. The `Entire-Session` logic can go away, and the logic where it's actually a `CommitHash` I'd like to move out of this method and rather add a method doing the conversion before calling `GetSessionLog` can you show me how you would approach this?\n\n---\n\nhmm, or thinking alternatively: Maybe the commitHash is ok, but then it should actually look at the commit for the checkpoint Trailer and we make the param an explicit git hash so type checking prevent this multi use from happening again\n\n---\n\nis it worth making the CheckpointID a type?\n\n---\n\nyeah maybe then let's start with this "
+  },
+  {
+   "source": "commit_message",
+   "commit": "dd6fdeb6f9",
+   "checkpoint": "d17074281105",
+   "text": "git-refs: shard every checkpoint ID on the last two chars (one rule for both formats)\n\nShardFor previously branched on the ID Kind — legacy hex on the first two chars,\nULID on the last two — which meant the ref shard depended on format detection and\ncould be computed inconsistently by an independent reimplementation (the e2e\nhelper sharded any 26-char string as a ULID, diverging from production's strict\ncheck for a 26-char non-ULID).\n\nCollapse it to a single positional rule: the last two characters, for both legacy\n12-hex IDs and 26-char ULIDs. Trailing chars are uniformly random in both formats\n(a ULID's leading chars are its timestamp), so distribution stays even, and there\nis no Kind branch to get wrong. RefName still rejects KindUnknown IDs, so both\nsupported formats map to a proper ref while invalid ones are refused.\n\nThis only affects the git-refs ref namespace (no production data yet); the\nentire/checkpoints/v1 branch tree keeps its independent first-two Path() layout.\nThe e2e checkpointShard helper is simplified to the same last-two rule so it\ncan't diverge from production. Updates the affected shard expectations in the id,\nrefs-naming, and refs-store tests.\n\nResolves the git-refs sharding review thread (e2e/testutil/backend.go)."
+  },
+  {
+   "source": "transcript",
+   "commit": "dd6fdeb6f9",
+   "checkpoint": "d17074281105",
+   "text": "[assistant] -level plan for the agreed scope — a runnable `git-refs` primary behind config, in 3 reviewable PRs.\n\n---\n\n## PR 1 — ID kind + ref resolver (pure, no behavior change)\n\n**`cmd/entire/cli/checkpoint/id/id.go`**\n- Add `Kind(id) {Legacy, ULID}` detection (12 lowercase hex vs 26 Crockford base32).\n- Add ULID `Validate`; keep `Generate()` emitting **legacy hex** for now (switching generation touches the `Entire-Checkpoint:` trailer, Vogon regexes, and many tests — defer to a later PR; the refs store works fine on hex IDs).\n- `ShardFor(id) string` — first-2 for legacy, last-2 for ULID. Pure string, n\n[assistant] er` (off the phase2 base), one commit, **pure naming layer — no behavior change** (nothing constructs a ref store yet). `mise run fmt && lint` clean, affected package tests green.\n\n**`id` package** (`id.go`)\n- `KindOf` / `CheckpointID.Kind()` — classifies legacy 12-hex, 26-char Crockford-base32 ULID, or unknown.\n- `CheckpointID.ShardFor()` — asymmetric shard per your spec: legacy hex → **first 2** chars (keeps the v1 layout), ULID → **last 2** chars. Unknown/short fall back to prefix.\n\n**`checkpoint` package** (`refs_naming.go`)\n- `RefName(id)` → `refs/entire/checkpoints/<shard>/<id>` (full ID\n[user] tBacked`), `Open`/`OpenEnv`, `fanoutStore`, backend types `git-branch`/`git-refs`.\n   - Checkpoint IDs: legacy 12-hex (shard=first-2) vs ULID 26-char Crockford base32 (shard=last-2). `KindOf`/`Kind`/`ShardFor`/`CheckpointPattern`/`Pattern`(hex, reused for run-IDs).\n   - treeWriter: shared repo-only \"build one checkpoint subtree\" core; `basePath` convention (trailing `/`, or `\"\"` for refs root); v1 tree byte-identical guarantee.\n   - Push: flock JSONL push-discovery queue; non-force `ref:ref` push; `fetchAndRebaseRefCommon` (delta cherry-pick, non-branch-aware) for recovery; `--force-with-lease"
+  },
+  {
+   "source": "prompt",
+   "commit": "dd6fdeb6f9",
+   "checkpoint": "d17074281105",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "ed37598995",
+   "checkpoint": "dc49cb8a2a42",
+   "text": "no panic!"
+  },
+  {
+   "source": "transcript",
+   "commit": "ed37598995",
+   "checkpoint": "dc49cb8a2a42",
+   "text": "[assistant] ecommend **REQUEST CHANGES** before merging. Here's a synthesis:\n\n### Consensus Critical Issues (Both Agents Identified)\n\n| Issue | Location | Description |\n|-------|----------|-------------|\n| **`id.Generate()` panics** | `checkpoint/id/id.go:49` | Should return `(CheckpointID, error)` instead of panicking on crypto/rand failure |\n| **Silent data loss in Gemini** | `geminicli/gemini.go:387-389` | Silently continues when message marshaling fails - should log or return error |\n| **`GetSessionLog` removed from interface** | `strategy/strategy.go` | Breaking change to Strategy interface without m\n[user] Can you fix: Fix the panic in id.Generate() - return error tuple instead\n[assistant] The user wants me to fix a panic in `id.Generate()` by changing it to return an error tuple instead of panicking. Let me first find the `id.Generate()` function to understand the current implementation.\n[assistant] I'll find the `id.Generate()` function and fix the panic to return an error tuple instead.\n[assistant] Now I need to find all the callers of `Generate()` to update them to handle the error. Let me search for usages.\n[assistant] Now let me find all callers of `Generate()` to update them.\n[assistant] Done. Changed `id.Generate()` from panicking to returning an error tuple:\n\n**Changes made:**\n\n1. `cmd/entire/cli/checkpoint/id/id.go:46-52` - Changed signature from `Generate() CheckpointID` to `Generate() (CheckpointID, error)`, returning `(EmptyCheckpointID, err)` on failure instead of panicking\n\n2. `cmd/entire/cli/strategy/manual_commit_hooks.go:275-282` - Updated caller to handle error\n\n3. `cmd/entire/cli/strategy/auto_commit.go:142-148` - Updated caller to handle error\n\n4. `cmd/entire/cli/strategy/auto_commit.go:536-543` - Updated caller to handle error\n\n5. `cmd/entire/cli/checkpoint/id/i"
+  },
+  {
+   "source": "prompt",
+   "commit": "ed37598995",
+   "checkpoint": "dc49cb8a2a42",
+   "text": "can you review the changes in this branch by two competing agents?"
+  }
+ ],
+ "cost": {
+  "usd": 0.058997,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 327,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 13914
+ },
+ "trace_id": "cd1ba26e6693a53c589fc9545c80f77f",
+ "error": null,
+ "trace_spans": 6
+}

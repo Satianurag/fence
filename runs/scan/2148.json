@@ -1,0 +1,206 @@
+{
+ "issue": 2148,
+ "title": "finalizeAllTurnCheckpoints has no total deadline: a slow remote can outlast the agent's hook timeout",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.72,
+  "rationale": "The evidence shows the absence of a total deadline was noticed (\"Nothing bounds the total: newGitHookContext adds no deadline\") but was only described as a gap, not chosen. The memo fix was scoped to dead-network exhaustion, and no evidence shows leaving the loop without an overall deadline was a deliberate design choice.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 3,
+  "symbols_named": 13,
+  "spans": 5,
+  "span_list": [
+   [
+    "cmd/entire/cli/hooks_git_cmd.go",
+    41,
+    41,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    3249,
+    3466,
+    "func:finalizeAllTurnCheckpoints"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit.go",
+    127,
+    169,
+    "func:hookBlobFetcher"
+   ],
+   [
+    "cmd/entire/cli/hooks_git_cmd.go",
+    34,
+    45,
+    "func:newGitHookContext"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/fetching_tree.go",
+    156,
+    175,
+    "func:PreFetch"
+   ]
+  ],
+  "lines": 294,
+  "lines_linked": 201,
+  "checkpoints": 33
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "71644aa98c",
+   "checkpoint": "49280afe3e31",
+   "text": "1:1 checkpoint to commit"
+  },
+  {
+   "source": "transcript",
+   "commit": "71644aa98c",
+   "checkpoint": "49280afe3e31",
+   "text": "[user]  = remaining`, `StepCount = 1`\n\nThe old shadow branch is still deleted (it was at the old base commit). The new one is at the new HEAD.\n\n## Implementation\n\n### Step 1: Helper to get committed files (`manual_commit_hooks.go`)\n\nAdd `filesChangedInCommit(repo, commit)` that diffs the commit against its parent:\n\n```go\nfunc filesChangedInCommit(repo *git.Repository, commit *object.Commit) map[string]struct{} {\n    // Get parent tree (empty tree if initial commit)\n    // Diff parent tree vs commit tree\n    // Return set of changed file paths (From.Name or To.Name)\n}\n```\n\nPattern exists in `explain.g\n[assistant] Now let me implement all three helper functions together. First, let me add `filesChangedInCommit` and `subtractFiles` to `manual_commit_hooks.go`.\n[user] every checkpoint to contain it identically\n\n**Test:** `cmd/entire/cli/checkpoint/committed_update_test.go`\n\n### Step 4: Simplify PrepareCommitMsg (always fresh ID)\n\n**File:** `cmd/entire/cli/strategy/manual_commit_hooks.go`\n\n- Remove the entire \"no new content — check LastCheckpointID reuse\" block (~lines 293-350 on main)\n- If `sessionsWithContent` is empty → return nil (no trailer)\n- Always `id.Generate()` for fresh checkpoint ID\n- Remove `isRestoringExisting` logic and the split `source == \"message\"` cases\n- Remove `getCondensedFilesTouched()` function\n- Keep `hasOverlappingFiles()` (still u\n[assistant] text blobs, updates content hash, commits\n- Added `replaceTranscript` helper that removes old transcript chunks and writes the new content\n\n### 3. TurnCheckpointIDs recording in PostCommit (`strategy/manual_commit_hooks.go`)\n- After successful condensation for ACTIVE sessions, appends the checkpoint ID to `state.TurnCheckpointIDs`\n\n### 4. HandleTurnEnd finalization (`strategy/manual_commit_hooks.go`)\n- Replaced the no-op `HandleTurnEnd` with `finalizeAllTurnCheckpoints`\n- Reads full transcript from `state.TranscriptPath`\n- Extracts prompts and generates context from the full transcript\n- Calls"
+  },
+  {
+   "source": "prompt",
+   "commit": "71644aa98c",
+   "checkpoint": "49280afe3e31",
+   "text": "Implement the following plan:\n\n# Carry Forward: Preserve Uncommitted Files After Condensation\n\n## Context\n\nWhen an agent makes multiple commits within a single turn (e.g., commits 2 of 3 edited files, then commits the third), the second commit currently gets no checkpoint. After the first commit condenses, `StepCount` resets to 0, `FilesTouched` is cleared, and the shadow branch is deleted. The second commit sees no session data to condense.\n\n**Goal:** After condensation, if the session still has uncommitted files that were touched during the session, create a new shadow branch at the new HEAD carrying those remaining files + all metadata. This ensures every commit gets its own checkpoint.\n\n## What Changes\n\nAfter `condenseAndUpdateState` succeeds for an ACTIVE session:\n1. Compute which fil"
+  },
+  {
+   "source": "commit_message",
+   "commit": "9afb79c8d5",
+   "checkpoint": "01M11YQJZ0WMJ08QPAD5T8D8WE",
+   "text": "es not.\n\ngitRefsStore.fetchFailure memoizes a dead network for the store's\nlifetime, and its doc comment names the exact case: \"a loop over N\nmissing refs (e.g. a stop hook finalizing every checkpoint of a turn)\npays a dead network once instead of N times\". But it is consulted only\nin resolveRefMaybeFetch (refs_store.go:402) — the ref path. Blob reads\ngo through NewFetchingTree, whose struct is {inner, ctx, storer, fetch}\nwith no memo, and which is rebuilt per tree read at refs_store.go:377.\nSo finalizeAllTurnCheckpoints, looping state.TurnCheckpointIDs against\none store and continuing past each failure, paid WriteProbeFetchBudget\n(15s) per checkpoint — and FetchingTree.File fetches one hash at a time,\nso a read touching several missing blobs paid it several times over.\nNothing bounds the total: newGitHookContext adds no deadline, so the\nreal ceiling is the agent killing the hook (~60s for Claude Code), after\nwhich nothing past the loop runs.\n\nhookBlobFetcher now memoizes for its own lifetime, which is one\nhookCheckpointStoreOptions call and therefore one store open — the same\nscope as the ref memo. It lives in the closure rather than on the store\nbecause the condition is \"OUR budget expired\", and only the code that\ncreated the timeout can tell that apart from a caller deadline or a\nremote refusal; a store-level memo would also reach interactive paths\nlike `checkpoint explain`, which have a 3-minute budget and a user\nwatching.\n\nOnly budget exhaustion is memoized. That is the "
+  },
+  {
+   "source": "transcript",
+   "commit": "9afb79c8d5",
+   "checkpoint": "01M11YQJZ0WMJ08QPAD5T8D8WE",
+   "text": "[assistant] 27, same func |\n| Blob path has nothing in between | ✅ `refs_store.go:377` → `NewFetchingTree`; struct is `{inner, ctx, storer, fetch}`, no memo, fresh tree per read |\n| Loop pays per checkpoint | ✅ `finalizeAllTurnCheckpoints` one store, `errCount++; continue` |\n| Cost | ✅ `WriteProbeFetchBudget = 15s`; and `File()` fetches one hash at a time, so several missing blobs in one read pay 15s *each* |\n| No enclosing deadline | ✅ `newGitHookContext` only wraps logging + perf span |\n| Memo's doc names this case | ✅ \"a loop over N missing refs (e.g. a stop hook finalizing every checkpoint of a turn) \n[assistant] `a hook fetch must carry a deadline at all`). Before, that mutation went green.\n\n## 2. Your finding — the memo doesn't cover blobs\n\nConfirmed exactly as you described. The fix is a blob-side memo on `hookBlobFetcher`, mirroring `gitRefsStore.fetchFailure`'s lifetime reasoning (one hook invocation).\n\n**The judgment call, which is yours to overrule:** I memoize *only budget exhaustion*, not any failure. Reasoning — exhaustion is the dead-network signature and the only failure expensive enough to be worth not repeating; a fast error is cheap to retry and may be one blob's genuine remote absence, \n[assistant]  a *failure*, not a result: remember that the network is dead so you stop paying to rediscover it.\n\nConcretely, the stop hook finalizing a 5-checkpoint turn on a dead network, before the change:\n\n```\nfinalizeAllTurnCheckpoints\n  checkpoint.Open(...)          ← one store, one blob fetcher, for the whole loop\n  for cpID := range TurnCheckpointIDs\n    store.Write(...) → reads metadata.json → blob missing → fetch → 15s timeout\n    checkpoint 1: 15s\n    checkpoint 2: 15s   ← nothing remembers checkpoint 1 already proved this\n    checkpoint 3: 15s\n    ...\n```\n\n75s, and worse in practice: `FetchingTr"
+  },
+  {
+   "source": "prompt",
+   "commit": "9afb79c8d5",
+   "checkpoint": "01M11YQJZ0WMJ08QPAD5T8D8WE",
+   "text": "can you not do the artificial line breaks?\n\n---\n\nok, suggestion for the comment now on the issue?\n\n---\n\ncan we condense it a bit more?\n\n---\n\ncan you look at his comment\n\n---\n\ncan you look at the comments on 2145/2146 and if they have findings\n\n---\n\nyes, please do\n\n---\n\naslo on 2146:\n\nThe rewritten comments at manual_commit_hooks.go:1131-1135 and :3166-3170 say \"Bounded budgets + the store's failure memo keep a dead network from stalling the stop hook N times\". That memo is gitRefsStore.fetchFailure and it is consulted only in resolveRefMaybeFetch (refs_store.go:402-407) — the ref path. blobFetcher goes straight to NewFetchingTree with nothing in between. Meanwhile finalizeAllTurnCheckpoints loops over state.TurnCheckpointIDs with one store (manual_commit_hooks.go:3007), logging and continu"
+  },
+  {
+   "source": "commit_message",
+   "commit": "3005c7a879",
+   "checkpoint": "413cf123213d",
+   "text": "Remove unused resolver field and add batch blob prefetching\n\nReplace the dead `*BlobResolver` field in FetchingTree with the underlying\n`storer.EncodedObjectStorer`, removing a wasted heap allocation per instance.\nAdd PreFetch() method that recursively walks the tree, collects locally-missing\nblob hashes, and batch-fetches them in a single network round-trip. Wire\nPreFetch into all three resume flow call sites so metadata reads no longer\ntrigger N+1 separate `git fetch origin <hash>` subprocesses.\n\nAssisted-By: Assisted-by: Claude Opus 4.6 <noreply@anthropic.com>"
+  },
+  {
+   "source": "transcript",
+   "commit": "3005c7a879",
+   "checkpoint": "413cf123213d",
+   "text": "[user] etching—t.resolver.HasBlob() and t.resolver.ReadBlob() are never called. This is dead code that wastes a heap allocation per FetchingTree instance.\n\nAdditional Locations (2)\ncmd/entire/cli/checkpoint/fetching_tree.go#L44-L45\ncmd/entire/cli/checkpoint/fetching_tree.go#L160-L161\n\n\ncmd/entire/cli/checkpoint/fetching_tree.go\n\nPer-blob fetching misses intended batch optimization\nMedium Severity\n\nFetchingTree.File() calls t.fetch with a single-element slice for every blob miss, triggering one git fetch origin <hash> subprocess per file. During resume, reading root metadata plus N session metadata fi\n[assistant] Now I have a clear picture. Let me look at the `FetchingTree`'s `PreFetch` or similar batch method, and at the `FetchBlobsByHash` function.\n[assistant] Everything looks clean. Here's a summary of the changes:\n\n## Changes Made\n\n### Issue 1: Remove unused `resolver` field (low severity)\n\n**`cmd/entire/cli/checkpoint/fetching_tree.go`:**\n- Removed the `resolver *BlobResolver` field from `FetchingTree` struct\n- Replaced it with `storer storer.EncodedObjectStorer` which is needed for the new `PreFetch` method (and was previously only held transitively via `BlobResolver`)\n- Removed `NewBlobResolver(s)` allocation from `NewFetchingTree`\n- Updated `Tree()` to propagate `storer` instead of `resolver`\n\nNote: `BlobResolver` itself is kept — it's still u\n[assistant] The staged changes are across checkpoint and strategy files, involving:\n1. New `fetching_tree.go` - a new abstraction for fetching trees\n2. Replacing `getSessionsBranchTree()` with `getFetchingTree(ctx)` in committed.go\n3. Changes to store.go, temporary.go\n4. Changes to resume.go, resume_test.go\n5. Changes to strategy/common.go and manual_commit.go\n\nBased on the recent commits, this is continuing work on lazy/on-demand blob fetching for metadata. Let me create the commit."
+  },
+  {
+   "source": "prompt",
+   "commit": "3005c7a879",
+   "checkpoint": "413cf123213d",
+   "text": "Resolve these two issues:\n\n---\n\nUnused resolver field allocated in every FetchingTree\nLow Severity\n\nThe resolver field (*BlobResolver) is allocated via NewBlobResolver(s) in every NewFetchingTree call and propagated in Tree(), but no FetchingTree method ever reads it. File() uses t.inner.File() as the existence check and t.fetch for fetching—t.resolver.HasBlob() and t.resolver.ReadBlob() are never called. This is dead code that wastes a heap allocation per FetchingTree instance.\n\nAdditional Locations (2)\ncmd/entire/cli/checkpoint/fetching_tree.go#L44-L45\ncmd/entire/cli/checkpoint/fetching_tree.go#L160-L161\n\n\ncmd/entire/cli/checkpoint/fetching_tree.go\n\nPer-blob fetching misses intended batch optimization\nMedium Severity\n\nFetchingTree.File() calls t.fetch with a single-element slice for ever"
+  },
+  {
+   "source": "commit_message",
+   "commit": "5bb15562a9",
+   "checkpoint": "8f6d7740d3d5",
+   "text": "cursor 2026.03.11 transitions from flat to nested path during a session"
+  },
+  {
+   "source": "transcript",
+   "commit": "5bb15562a9",
+   "checkpoint": "8f6d7740d3d5",
+   "text": "[assistant] e-resolution (the Cursor bug), file not found, unknown agent, empty path, directory path, and Claude Code (no relocation).\n\n**Modified: `manual_commit_condensation.go`** — Applied `resolveTranscriptPath` in:\n- `CondenseSession` (early resolution before any reads)\n- `extractSessionDataFromLiveTranscript` (the direct error site from CI)\n\n**Modified: `manual_commit_hooks.go`** — Applied `resolveTranscriptPath` in:\n- `hasNewTranscriptWork` (transcript content check)\n- `extractModifiedFilesFromLiveTranscript` (file detection from transcript)\n- `finalizeAllTurnCheckpoints` (end-of-turn finalization)\n[user] ath`).\n\n- **`extractModifiedFilesFromLiveTranscript`** (line 1567): Calls `resolveTranscriptPath` at line 1559, then calls `GetByAgentType` at line 1567. Same pattern as `hasNewTranscriptWork`.\n\n- **`finalizeAllTurnCheckpoints`** (line 2191): Calls `resolveTranscriptPath` at line 2191. Does NOT separately call `GetByAgentType` -- this is the cleanest call site with no redundancy.\n\nIn total, `GetByAgentType` is called twice (once inside `resolveTranscriptPath`, once by the caller) at 4 of the 5 call sites. The lookup goes through a registry map so it is cheap, but it is technically redundant. A\n[user]  `state` is always a pointer to a mutable struct that gets saved later via `saveSessionState`.\n\n### 2. Copy-paste boilerplate across 3 hooks call sites\n\n**Severity: Medium**\n\nThe three call sites in `manual_commit_hooks.go` follow an almost identical pattern:\n\n```go\n// hasNewTranscriptWork (line 1490)\nif _, resolveErr := resolveTranscriptPath(state); resolveErr != nil {\n    logging.Debug(logCtx, \"hasNewTranscriptWork: transcript path resolution failed\", ...)\n    return false\n}\n\n// extractModifiedFilesFromLiveTranscript (line 1559)\nif _, resolveErr := resolveTranscriptPath(state); resolveErr !="
+  },
+  {
+   "source": "prompt",
+   "commit": "5bb15562a9",
+   "checkpoint": "8f6d7740d3d5",
+   "text": "can you take a look at https://github.com/entireio/cli/actions/runs/23154135968 and especially at the cursor cli errors\n\n---\n\nHmm, but this used to work before. I'm a bit surprised, like for example https://github.com/entireio/cli/actions/runs/22959662219\n\n---\n\nyes, let's fix it\n\n---\n\nare there more tests needed?\n\n---\n\n/simplify\n\n---\n\n<task-notification>\n<task-id>a461045f5a85f079b</task-id>\n<tool-use-id>toolu_01HWEXxFWgwxHVgyJ134JVE2</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli/4a93df6c-18f9-424f-af2a-6ee3b41ac6aa/tasks/a461045f5a85f079b.output</output-file>\n<status>completed</status>\n<summary>Agent \"Code reuse review\" completed</summary>\n<result>Here are my findings, organized by the four search criteria:\n\n---\n\n## Findings\n\n### 1. Existing function"
+  },
+  {
+   "source": "commit_message",
+   "commit": "cd0da4cb1b",
+   "checkpoint": "01M11N10KYQRMR13NJFHY8T281",
+   "text": "Let hook checkpoint reads fetch blobs a partial clone filtered out\n\nThe post-commit attribution and stop-hook transcript finalize paths open the\ncheckpoint store with a bounded ref fetcher and no blob fetcher. On a partial\nclone that is not enough: the ref resolves, then the checkpoint's own\nmetadata.json is a filtered-out blob, and GitStore.Read maps an unreadable\nmetadata.json to (nil, nil) — \"checkpoint not found\". Attribution is skipped\nand the finalized transcript never reaches its checkpoints, with nothing above\nDebug to say why.\n\nUntil #2141 those reads were rescued by git's own promisor fetch inside\n`cat-file`, unbounded and one round-trip per blob, from inside a hook the\nuser's git command was waiting on. Disabling that was right; leaving the paths\nwith no way to fetch was not.\n\nGive them the same envelope the ref probe there already has: the write-probe\nbudget over the whole call plus BatchMode SSH, so a passphrase-protected key\ncannot prompt or hang. Both bounds now come from one\nhookCheckpointStoreOptions, because a hook with one and not the other still\nreports checkpoints that exist as missing. The fetcher fires only when a blob\nis genuinely absent locally, so a full clone never pays for it.\n\nNot addressed here, deliberately: head_checkpoint_flags and review_context\nread fetcher-less too, but they feed `entire status` and review context\nenrichment, where a network fetch is worse than the missing hint;\ndispatch/mode_local needs the fetcher plumbed across a package"
+  },
+  {
+   "source": "transcript",
+   "commit": "cd0da4cb1b",
+   "checkpoint": "01M11N10KYQRMR13NJFHY8T281",
+   "text": "[assistant] FetchingTree` backs *every* checkpoint read (`persistent.go:1346`/`1388` → `getCheckpointFetchingTree`, `refs_store.go:377`), and six call sites open the store with **no** `BlobFetcher`:\n\n- `strategy/manual_commit_hooks.go:1135` (post-commit combined attribution)\n- `strategy/manual_commit_hooks.go:3172` (stop-hook transcript finalize)\n- `head_checkpoint_flags.go:56`, `review_context.go:100`, `dispatch/mode_local.go:230`, `explain.go:733`\n\nOn a promisor partial clone, those reads previously succeeded via git's own lazy fetch and now hard-fail. Verified with a throwaway probe in the `checkpoint`\n[user]  makes a lot of sense.\n[10:33 AM]For readFileViaGit, I think that may break something\n[10:33 AM]https://github.com/entireio/cli/blob/f6091af37535f62132fd6dd0dd83f7a8a3ec00e5/cmd/entire/cli/checkpoint/fetching_tree.go#L119\n[10:33 AM]But only if t.fetch is nil, otherwise it should just work.\nsoph  [10:33 AM]\nMy review found a few cases where it doesn‘t help/needs it too. But I‘m still wrapping my head around\nPaulo Gomes  [10:35 AM]\nThat being said, now that we do the promisor dance correctly, we should be able to remove a lot of the custom code we have around PreFetch if we are leaning a lot on \n[assistant] )`): fix applied → `blob 22d75e350a99 not available locally and no fetcher configured`; fix reverted → succeeds via lazy fetch.\n\nIt's reachable: six read paths open the store with no `BlobFetcher` — `manual_commit_hooks.go:1135` (post-commit attribution), `:3172` (stop-hook finalize), `head_checkpoint_flags.go:56`, `review_context.go:100`, `dispatch/mode_local.go:230`, `explain.go:733`. And it's quiet: `GitStore.Read` maps a `metadata.json` read failure to `(nil, nil)` = *checkpoint not found*, so attribution just doesn't happen.\n\nTwo refinements to \"otherwise it should just work\":\n\n- **It doe"
+  },
+  {
+   "source": "commit_message",
+   "commit": "97ce79e96b",
+   "checkpoint": "db3f4ae57df0",
+   "text": "Fix deferred condensation: dispatch remaining actions on TurnEnd\n\ntransitionSessionTurnEnd() was ignoring the return value of\nApplyCommonActions(), so ActionCondense emitted by the\nACTIVE_COMMITTED → IDLE transition was silently dropped. Session data\nfrom in-turn commits stayed stuck on the shadow branch.\n\nAdd TurnEndHandler optional interface and implement it on\nManualCommitStrategy to dispatch deferred condensation at turn end."
+  },
+  {
+   "source": "transcript",
+   "commit": "97ce79e96b",
+   "checkpoint": "db3f4ae57df0",
+   "text": "[assistant] t me discuss this with you.\n\n---\n\nHere's a summary of the one unaddressed review comment on PR #172:\n\n## Thread: cursor[bot] — Condensation failure orphans shadow branch (Medium Severity)\n\n**File:** `manual_commit_hooks.go:621-623`\n\n**Claim:** When `condenseAndUpdateState()` returns `false` (condensation failed), `condensed` stays `false` and `hasPendingMigration` stays `false`, so line 621 (`if !condensed && !hasPendingMigration`) evaluates true and calls `updateBaseCommitIfChanged()`. This updates `state.BaseCommit` to the new HEAD, but the shadow branch is still named with the **old** BaseC\n[assistant] The user is asking about test coverage for the PostCommit processing logic in `manual_commit_hooks.go`, specifically the action dispatch loop around lines 580-634. Let me check what tests exist.\n[assistant] All done. Here's a summary:\n\n**Commit:** `eafc9512` (pushed)\n\n**Bug fix** (`manual_commit_hooks.go`):\n- Eliminated the fallthrough pattern — each action branch now handles its own `BaseCommit` update\n- Removed `condensed` and `hasPendingMigration` booleans and the fallthrough conditional block\n- On condensation failure, `BaseCommit` is preserved so the shadow branch remains accessible\n- Added `logging.Warn` for condensation failures (was only printing to stderr before)\n- Changed `condenseAndUpdateState` return type from `bool` to void (return value no longer needed)\n\n**Test coverage** (`phase_"
+  },
+  {
+   "source": "prompt",
+   "commit": "97ce79e96b",
+   "checkpoint": "db3f4ae57df0",
+   "text": "Base directory for this skill: /Users/alex/.claude/skills/github-pr-review\n\n# GitHub PR Review\n\n## Overview\n\nTechnical mechanics for GitHub PR review workflows via `gh` CLI. Covers fetching review comments, replying to threads, creating/updating PRs.\n\n**Companion skill:** For *how to evaluate* feedback, see `superpowers:receiving-code-review`. This skill covers *how to interact* with GitHub.\n\n**Security:** Use fine-grained PAT with minimal permissions.\n\n## Setup (One-Time)\n\n### Fine-Grained PAT\n\nCreate at github.com -> Settings -> Developer settings -> Personal access tokens -> Fine-grained tokens:\n\n| Permission | Level |\n|------------|-------|\n| Pull requests | Read & Write |\n| Contents | Read |\n\n**Can't:** Delete repos, push code, delete branches, manage settings.\n\n### Configure & Allowl"
+  },
+  {
+   "source": "commit_message",
+   "commit": "6cf0d910ca",
+   "checkpoint": "01M1210FZJJDFWSE9ZJ91RRTCW",
+   "text": "Document why the memo lock is not held across the fetch\n\nReview flagged the check-then-act window between reading the memo and\nperforming the fetch, suggesting `mu.Lock(); defer mu.Unlock(); if\nexhausted != nil { return exhausted }`.\n\nThat suggestion deadlocks, verified: applied verbatim, the memo test\ntimes out after 40s. `defer mu.Unlock()` holds the mutex across the\nwhole closure body, and the memo write further down re-acquires the same\nnon-reentrant sync.Mutex. It would also hold a lock across a 15s network\ncall.\n\nThe window itself is real but unreachable: every caller on these paths\nis sequential — finalizeAllTurnCheckpoints loops one checkpoint at a\ntime, and FetchingTree.File / PreFetch are sequential within a read. If\nit were reached the cost is one duplicate fetch, not a wrong answer,\nsince the memo is an optimization and not a correctness invariant.\nClosing it properly would need single-flight, which is more machinery\nthan an unreachable duplicate-fetch window justifies.\n\nComment records all of that so the next reader does not re-derive it and\napply the deadlocking version."
+  },
+  {
+   "source": "transcript",
+   "commit": "6cf0d910ca",
+   "checkpoint": "01M1210FZJJDFWSE9ZJ91RRTCW",
+   "text": "[assistant] 27, same func |\n| Blob path has nothing in between | ✅ `refs_store.go:377` → `NewFetchingTree`; struct is `{inner, ctx, storer, fetch}`, no memo, fresh tree per read |\n| Loop pays per checkpoint | ✅ `finalizeAllTurnCheckpoints` one store, `errCount++; continue` |\n| Cost | ✅ `WriteProbeFetchBudget = 15s`; and `File()` fetches one hash at a time, so several missing blobs in one read pay 15s *each* |\n| No enclosing deadline | ✅ `newGitHookContext` only wraps logging + perf span |\n| Memo's doc names this case | ✅ \"a loop over N missing refs (e.g. a stop hook finalizing every checkpoint of a turn) \n[assistant] `a hook fetch must carry a deadline at all`). Before, that mutation went green.\n\n## 2. Your finding — the memo doesn't cover blobs\n\nConfirmed exactly as you described. The fix is a blob-side memo on `hookBlobFetcher`, mirroring `gitRefsStore.fetchFailure`'s lifetime reasoning (one hook invocation).\n\n**The judgment call, which is yours to overrule:** I memoize *only budget exhaustion*, not any failure. Reasoning — exhaustion is the dead-network signature and the only failure expensive enough to be worth not repeating; a fast error is cheap to retry and may be one blob's genuine remote absence, \n[assistant]  a *failure*, not a result: remember that the network is dead so you stop paying to rediscover it.\n\nConcretely, the stop hook finalizing a 5-checkpoint turn on a dead network, before the change:\n\n```\nfinalizeAllTurnCheckpoints\n  checkpoint.Open(...)          ← one store, one blob fetcher, for the whole loop\n  for cpID := range TurnCheckpointIDs\n    store.Write(...) → reads metadata.json → blob missing → fetch → 15s timeout\n    checkpoint 1: 15s\n    checkpoint 2: 15s   ← nothing remembers checkpoint 1 already proved this\n    checkpoint 3: 15s\n    ...\n```\n\n75s, and worse in practice: `FetchingTr"
+  },
+  {
+   "source": "prompt",
+   "commit": "6cf0d910ca",
+   "checkpoint": "01M1210FZJJDFWSE9ZJ91RRTCW",
+   "text": "can you not do the artificial line breaks?\n\n---\n\nok, suggestion for the comment now on the issue?\n\n---\n\ncan we condense it a bit more?\n\n---\n\ncan you look at his comment\n\n---\n\ncan you look at the comments on 2145/2146 and if they have findings\n\n---\n\nyes, please do\n\n---\n\naslo on 2146:\n\nThe rewritten comments at manual_commit_hooks.go:1131-1135 and :3166-3170 say \"Bounded budgets + the store's failure memo keep a dead network from stalling the stop hook N times\". That memo is gitRefsStore.fetchFailure and it is consulted only in resolveRefMaybeFetch (refs_store.go:402-407) — the ref path. blobFetcher goes straight to NewFetchingTree with nothing in between. Meanwhile finalizeAllTurnCheckpoints loops over state.TurnCheckpointIDs with one store (manual_commit_hooks.go:3007), logging and continu"
+  },
+  {
+   "source": "commit_message",
+   "commit": "ade9120be7",
+   "checkpoint": "210a036ddee6",
+   "text": "Use shadow branch/filesystem as source of truth for prompt.txt, never transcript\n\nStop extracting prompts from transcript at TurnEnd — prompts now flow\nexclusively through event.Prompt at TurnStart and are appended to the\nfilesystem prompt.txt. This prevents TurnEnd from overwriting accumulated\nprompts. Commit messages use state.LastPrompt instead.\n\nAdd filesystem fallback to finalizeAllTurnCheckpoints for cases where the\nshadow branch prompt.txt is not yet available. Clear filesystem prompt.txt\nafter condensation only when all files are committed (preserve for\ncarry-forward).\n\nUpdate integration tests to pass prompts through the hook input via new\nSimulateUserPromptSubmitWithPrompt helper."
+  },
+  {
+   "source": "transcript",
+   "commit": "ade9120be7",
+   "checkpoint": "210a036ddee6",
+   "text": "[user] astPrompt`\n- Keep JSON tag as `\"first_prompt\"` for backward compat with existing state files\n- Update comment\n\n### 2. Update `LastPrompt` on every turn, not just the first\n\n**`cmd/entire/cli/strategy/manual_commit_hooks.go`** — `InitializeSession()` (line 1681-1684):\n\nChange from only-backfill-if-empty:\n```go\nif state.FirstPrompt == \"\" && userPrompt != \"\" {\n    state.FirstPrompt = truncatePromptForStorage(userPrompt)\n}\n```\nTo always-update:\n```go\nif userPrompt != \"\" {\n    state.LastPrompt = truncatePromptForStorage(userPrompt)\n}\n```\n\nAlso update comment on line 1648 (`FirstPrompt` → `LastPromp\n[assistant] . **`cmd/entire/cli/session/state.go`** — Renamed `FirstPrompt` → `LastPrompt` field with updated comment. JSON tag kept as `\"first_prompt\"` for backward compatibility.\n\n2. **`cmd/entire/cli/strategy/manual_commit_hooks.go`** — `InitializeSession()` now always updates `LastPrompt` on every turn (not just backfill-if-empty). Also updated `finalizeAllTurnCheckpoints` to prefer `state.LastPrompt` over re-parsing the transcript.\n\n3. **`cmd/entire/cli/strategy/manual_commit_session.go`** — Updated `initializeSession()` to use `LastPrompt:` in the struct literal.\n\n4. **`cmd/entire/cli/strategy/manua\n[user] astPrompt`\n- Keep JSON tag as `\"first_prompt\"` for backward compat with existing state files\n- Update comment\n\n### 2. Update `LastPrompt` on every turn, not just the first\n\n**`cmd/entire/cli/strategy/manual_commit_hooks.go`** — `InitializeSession()` (line ~1681-1684):\n\nChange from only-backfill-if-empty:\n```go\nif state.FirstPrompt == \"\" && userPrompt != \"\" {\n    state.FirstPrompt = truncatePromptForStorage(userPrompt)\n}\n```\nTo always-update:\n```go\nif userPrompt != \"\" {\n    state.LastPrompt = truncatePromptForStorage(userPrompt)\n}\n```\n\n**`cmd/entire/cli/strategy/manual_commit_session.go`** — `i"
+  },
+  {
+   "source": "prompt",
+   "commit": "ade9120be7",
+   "checkpoint": "210a036ddee6",
+   "text": "Implement the following plan:\n\n# Plan: Fix prompt.txt missing in mid-turn commit checkpoints\n\n## Context\n\nMid-turn commits (agent commits while still working) produce checkpoints without `prompt.txt` after the first one. All checkpoints in a turn share the same user prompt and should all have it.\n\nRoot cause: `extractCheckpointPrompts()` scopes the transcript past where the prompt lives after the first condensation advances `CheckpointTranscriptStart`.\n\n## Approach\n\nRepurpose `FirstPrompt` on session state to track the **last prompt** instead. Update it on every `InitializeSession` call (each `UserPromptSubmit`). Use it in condensation instead of re-parsing the transcript.\n\nAll consumers of `prompt.txt` already truncate (`ExtractFirstPrompt` → 60 chars), and `FirstPrompt` stores 100 runes,"
+  }
+ ],
+ "cost": {
+  "usd": 0.057291,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 146,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 13940
+ },
+ "trace_id": "140ee2b25b15cc2277e913d45dd9cc90",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,224 @@
+{
+ "issue": 1928,
+ "title": "`entire agent add/list` does not discover external agents",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The agent group was introduced as a purely additive reorganization of existing commands, and nothing in the evidence shows that skipping external agent discovery in add/list/remove was chosen. The discovery gating evidence concerns trust and feature flags in other call sites, not a decision to exclude the agent noun-group.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 7,
+  "symbols_named": 13,
+  "spans": 7,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/external/discovery.go",
+    41,
+    57,
+    "func:DiscoverAndRegister"
+   ],
+   [
+    "cmd/entire/cli/agent/external/discovery.go",
+    82,
+    84,
+    "func:DiscoverAndRegisterAlways"
+   ],
+   [
+    "cmd/entire/cli/agent_group.go",
+    91,
+    126,
+    "func:newAgentAddCmd"
+   ],
+   [
+    "cmd/entire/cli/agent_group.go",
+    128,
+    141,
+    "func:newAgentRemoveCmd"
+   ],
+   [
+    "cmd/entire/cli/agent_group.go",
+    58,
+    66,
+    "func:newAgentListCmd"
+   ],
+   [
+    "cmd/entire/cli/agent_group.go",
+    50,
+    56,
+    "func:runAgentMenu"
+   ],
+   [
+    "cmd/entire/cli/agent_group.go",
+    68,
+    89,
+    "func:runAgentList"
+   ]
+  ],
+  "lines": 108,
+  "lines_linked": 97,
+  "checkpoints": 8
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "c41098955a",
+   "checkpoint": "da43eccbd366",
+   "text": "feat(cli): introduce noun-group command structure (#1061)\n\nReorganize the flat top-level command surface around four noun groups\n(session, checkpoint, agent, doctor) so users can discover and reason\nabout commands the way they think about the work — by domain noun,\nnot verb.\n\nPhase 1 is purely additive:\n  - 4 new noun groups with sub-commands\n  - 8 new sub-commands: session current, agent {list,add,remove},\n    checkpoint {list,show,diff}, doctor {logs,bundle}\n  - All previous top-level verbs (rewind, resume, attach, explain,\n    trace, search) remain registered as silent permanent aliases\n  - configure prints a one-time deprecation warning pointing to agent\n  - sessions stays as a Cobra alias of session\n\nNo prior invocation breaks. Full implementation tracked in #1061."
+  },
+  {
+   "source": "transcript",
+   "commit": "c41098955a",
+   "checkpoint": "da43eccbd366",
+   "text": "[assistant] -tail|--follow]`\n- `doctor bundle [--out]`\n\n**Files added:**\n- `aliascmd.go` — `warnDeprecatedAliasOnce`\n- `session_current.go`\n- `checkpoint_group.go` — group + list + show\n- `checkpoint_diff.go`\n- `agent_group.go`\n- `doctor_logs.go`\n- `doctor_bundle.go`\n\n**Files modified:**\n- `sessions.go` — renamed group to `session`, added `Aliases:[\"sessions\"]`, attach/resume/current as children\n- `doctor.go` — added trace/logs/bundle as subcommands\n- `setup.go` — `configure` prints one-time deprecation warning pointing to `agent`\n- `root.go` — wired groups, kept silent top-level aliases (`rewind`/`resume"
+  },
+  {
+   "source": "prompt",
+   "commit": "c41098955a",
+   "checkpoint": "da43eccbd366",
+   "text": "our commands have grown a lot! Can you check them all and rethink a better approach to organize/rename/restructure them? Are any missing you thing is useful ?\n\n---\n\nshow me the usage of each command, as it might differ a bit with what they are right now. entire resume gets a branch name to resume it's sessions as an example\n\n---\n\ny\n\n---\n\ngive me a comparation between the final shape and the current one\n\n---\n\nI do like a view like this:\n  entire\n  ├── enable                          # canonical (configure → deprecated alias)\n  ├── disable\n  ├── status\n  ├── doctor [--bundle]               # --bundle = NEW (zip logs+settings for bug reports)\n  ├── login / logout\n  ├── activity\n  ├── dispatch\n  ├── session                         # alias: sessions\n  │   ├── list\n  │   ├── info <id> [--json]\n "
+  },
+  {
+   "source": "commit_message",
+   "commit": "33a33e1f3c",
+   "checkpoint": "01M1KXKJJGJBSNX9HCED6WKBNZ",
+   "text": "binaryPath before spawning. run sets\ncmd.Dir to the worktree root and os/exec resolves a relative Path against Dir,\nso the file registerExternalAgent statted is not necessarily the file that\nexecutes. The check sits at the exec, so it also covers the exported New.\n\nexternal_agents joins openai_privacy_filter.command under the settings trust\ngate: honored only from a verified-untracked .entire/settings.local.json, a\ndowngrade rather than an error, with the reason surfaced by entire status and\nby DiscoverAndRegister. It grants execution of every entire-agent-* binary on\n$PATH, and a committed one-line JSON diff does not read as executable to a\nreviewer. Every auto-enable therefore writes the key to the local file through\nenableExternalAgentsLocally: writing it to the project file would produce a\nsetting the user can read back and that never takes effect.\n\nAuditing the six DiscoverAndRegisterAlways call sites -- runSetupFlow,\ndetectOrSelectAgent and runUninstall genuinely need the ungated sweep;\n--summarize-provider, the non-interactive skill install, and enable's --agent\npath already knew which agent they wanted and are now named lookups.\n\npluginParentDir applies its absoluteness rule to XDG_DATA_HOME and LOCALAPPDATA\nas well, rather than leaving those to osroot and to main.go's PATH restore two\nlayers away from where the invariant is decided.\n\nRegression tests assert behaviour rather than error text: each planted binary\nwrites a marker file, and the tests assert it never appea"
+  },
+  {
+   "source": "transcript",
+   "commit": "33a33e1f3c",
+   "checkpoint": "01M1KXKJJGJBSNX9HCED6WKBNZ",
+   "text": "[user] le into a single helper — e.g. `pathScanDirs()`\nreturning only absolute entries — and route every `$PATH` scanner through it.\n\nApply it to the external-agent scanner in\n`cmd/entire/cli/agent/external/discovery.go`, which currently globs each `$PATH`\nentry verbatim and executes what it finds. Because it resolves by glob rather\nthan `exec.LookPath`, it gets none of Go's `ErrDot` protection, and the paths it\nproduces contain separators, so `exec.Command`'s re-check does not apply either.\nTwo scanners carrying the same rule independently is how they drifted; one\nhelper keeps them aligned.\n\n## 2. R\n[assistant] Now the six `DiscoverAndRegisterAlways` call sites.\n[assistant] ()` (`cmd/entire/cli/execx/pathscan.go`) returns only absolute `$PATH` entries. Both scanners now go through it: `findInaccessiblePlugin` (`plugin.go`) and the external-agent scanner (`agent/external/discovery.go`). The doc comment records *why* the glob-based scanner needs it — a globbed match never passes `exec.LookPath`, so it gets no `ErrDot`, and it carries separators, so `exec.Command`'s re-check doesn't apply either.\n\n**2. Absolute path at the exec** — `external.Agent.run` refuses a non-absolute `binaryPath` before spawning. Note the guard had to be tested with a *separator-bearing* rel\n[assistant] cy_filter.command under the settings trust\ngate: honored only from a verified-untracked .entire/settings.local.json, a\ndowngrade rather than an error, with the reason surfaced by entire status and\nby DiscoverAndRegister. It grants execution of every entire-agent-* binary on\n$PATH, and a committed one-line JSON diff does not read as executable to a\nreviewer. Every auto-enable therefore writes the key to the local file through\nenableExternalAgentsLocally: writing it to the project file would produce a\nsetting the user can read back and that never takes effect.\n\nAuditing the six DiscoverAndRegist"
+  },
+  {
+   "source": "prompt",
+   "commit": "33a33e1f3c",
+   "checkpoint": "01M1KXKJJGJBSNX9HCED6WKBNZ",
+   "text": "# Harden executable resolution across the CLI\n\nStrengthen the guarantees around how the CLI decides which binaries to run, so\nthat \"we only execute binaries from trusted, absolute locations\" is enforced in\none place rather than restated per call site.\n\n## 1. Make the absolute-PATH rule shared and unconditional\n\n`findInaccessiblePlugin` (`cmd/entire/cli/plugin.go`) already drops non-absolute\n`$PATH` entries. Extract that rule into a single helper — e.g. `pathScanDirs()`\nreturning only absolute entries — and route every `$PATH` scanner through it.\n\nApply it to the external-agent scanner in\n`cmd/entire/cli/agent/external/discovery.go`, which currently globs each `$PATH`\nentry verbatim and executes what it finds. Because it resolves by glob rather\nthan `exec.LookPath`, it gets none of Go's `Er"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d27e1c8901",
+   "checkpoint": "45f8833a1843",
+   "text": "Make bare agent command open selector"
+  },
+  {
+   "source": "transcript",
+   "commit": "d27e1c8901",
+   "checkpoint": "45f8833a1843",
+   "text": "[user] ship it"
+  },
+  {
+   "source": "prompt",
+   "commit": "d27e1c8901",
+   "checkpoint": "45f8833a1843",
+   "text": "after merging https://github.com/entireio/cli/pull/1050 we did get some conflicts, I'm sure that PR added some commands we have also added. Validate which implementation is better. I do want to have real aliases as cobra defines them\n\n---\n\nship it\n\n---\n\nship it\n\n---\n\ngo thru all the PR comments. Fix them one by one, ask questions if doubts, once resolved, mark conversation as resolved\n\n---\n\nWe move configure into entire agent, but entire configure has a beauty select, none of entire agent command has. It should be under entire agent -> trigger same menu as entire configure"
+  },
+  {
+   "source": "commit_message",
+   "commit": "9fe130eccb",
+   "checkpoint": "e4d715984219",
+   "text": "Add feature-flag for external agents"
+  },
+  {
+   "source": "transcript",
+   "commit": "9fe130eccb",
+   "checkpoint": "e4d715984219",
+   "text": "[assistant] Now I have a clear picture. Let me read the key files I need to modify:\n\n1. `settings.go` - Add the `ExternalAgents` field and helper\n2. `discovery.go` - Gate discovery behind the setting\n3. `hooks_cmd.go` - Where `DiscoverAndRegister` is called\n\nLet me also check the settings test file and discovery file.\n[assistant] Now I have a clear picture. I need to:\n\n1. Add `ExternalAgents` bool field to `EntireSettings` struct (default false)\n2. Add `IsExternalAgentsEnabled()` helper method\n3. Add merge logic in `mergeJSON()`\n4. Gate `DiscoverAndRegister()` behind this setting\n5. Add tests\n6. Update the valid keys test\n\nLet me also check if setup.go references external agents anywhere beyond what I've seen.\n[assistant] I have a clear picture. I need to:\n\n1. Add `ExternalAgents` field to `EntireSettings` (default `false`)\n2. Add helper method and convenience function\n3. Handle it in `mergeJSON()`\n4. Gate `DiscoverAndRegister()` behind the setting\n5. Add tests\n\nLet me implement this.\n[assistant] Now gate `DiscoverAndRegister` behind the setting:\n[assistant] rnal_agents\"`, default `false`)\n- Added merge handling in `mergeJSON()` so local settings can override it\n- Added `IsExternalAgentsEnabled(ctx)` convenience function\n\n**`cmd/entire/cli/agent/external/discovery.go`:**\n- `DiscoverAndRegister()` now returns immediately if `settings.IsExternalAgentsEnabled()` is `false`\n\n**`cmd/entire/cli/settings/settings_test.go`:**\n- Added `TestExternalAgents_DefaultsFalse` — verifies zero-value is `false`\n- Added `TestLoad_ExternalAgentsField` — verifies loading from settings file\n- Added `TestMergeJSON_ExternalAgents` — verifies local override works\n- Updated"
+  },
+  {
+   "source": "prompt",
+   "commit": "9fe130eccb",
+   "checkpoint": "e4d715984219",
+   "text": "Add a specific setting to enable external agents, default is false. Without this setting we don't do discovery or allow interaction with external agents."
+  },
+  {
+   "source": "commit_message",
+   "commit": "31c66680d9",
+   "checkpoint": "adf96649b4f0",
+   "text": "Make Entire search skill opt-in"
+  },
+  {
+   "source": "transcript",
+   "commit": "31c66680d9",
+   "checkpoint": "adf96649b4f0",
+   "text": "[user] Does the little prompt injection work that the CLI has on trails? Investigate\n[assistant] Done.\n\n- Branch: `dip/search-skill-opt-in`\n- Trail: https://entire.io/gh/entireio/cli/trails/662\n- Commit: `31c66680d` — `Make Entire search skill opt-in`\n- Pushed to: `origin/dip/search-skill-opt-in`\n\nVerification run:\n- `mise run lint`\n- `go test ./cmd/entire/cli ./e2e/testutil`\n- Integration opt-in tests for Codex search skill."
+  },
+  {
+   "source": "prompt",
+   "commit": "31c66680d9",
+   "checkpoint": "adf96649b4f0",
+   "text": "Reduce code comments to a minimum.\n\n---\n\nNever amend.\n\n---\n\nWhere is it cached again, which file?\n\n---\n\nMerge latest main and resolve conflicts\n\n---\n\nEntire Trail review comment\nID: 019ef9cb-c7ec-73ea-bc5a-a0de2183e2dc\nURL: https://entire.io/gh/entireio/cli/trails/652/hardening-trail-injection-on-enablement-cache\nSeverity: medium\nContext: cmd/entire/cli/trail_context_cache.go\nNon-atomic read-modify-write race on the shared clone-preferences file. saveTrailsEnabledForScope (trail_context_cache.go ~L141) does LoadClonePreferences -> mutate -> SaveClonePreferences (settings/settings.go:577). The individual file write is atomic (WriteFileAtomic, temp+rename), but the load-modify-save sequence is not. The clone-preferences file lives in .git/, is shared across all worktrees/sessions, and is als"
+  },
+  {
+   "source": "commit_message",
+   "commit": "74114ec205",
+   "checkpoint": "723a52ba8b6f",
+   "text": "Prototype of a external egent"
+  },
+  {
+   "source": "transcript",
+   "commit": "74114ec205",
+   "checkpoint": "723a52ba8b6f",
+   "text": "[user] e external agent protocol, keeping it in this repo for now.\n\nThe binary will be at `cmd/entire-agent-cursor/main.go` — a standalone Go binary that can be discovered via `$PATH` by the CLI's `external.DiscoverAndRegister()`.\n\n## Step 1: Create the Binary Entry Point\n\n**File:** `cmd/entire-agent-cursor/main.go`\n\nA simple `main()` that dispatches subcommands. Since this is a protocol binary (not a user CLI), use a switch on `os.Args[1]` rather than cobra. Parse flags with `flag.NewFlagSet` per subcommand.\n\nSubcommands to implement (matching the protocol spec):\n- `info` — static JSON response\n- `d\n[assistant] ap()` function that returns the agent wrapped with only the interfaces declared in its capabilities (using delegation, not embedding, to avoid exposing all methods)\n- **`cmd/entire/cli/agent/external/discovery.go`** — `DiscoverAndRegister()` that scans `$PATH` for `entire-agent-*` binaries and registers them\n- **`cmd/entire/cli/agent/external/external_test.go`** — Tests using mock shell scripts: constructor validation, identity methods, detect, session, transcript analyzer, hook support, error handling, and `Wrap()` capability composition\n\n### Files Modified\n- **`cmd/entire/cli/hooks_cmd.go`**\n[user] ementation, hooks_cmd, architecture tests, and all references to cursor.\n\n3. I created the protocol specification document, the external agent adapter package (types.go, external.go, capabilities.go, discovery.go), modified hooks_cmd.go, removed the cursor directory, updated tests, and fixed various lint issues.\n\n4. All tests passed after fixing: paths.WorktreeRoot context argument, ExternalAgent stuttering name, gosec path traversal, musttag json tags, nilnil sentinel, blank-imports comments, wrapcheck errors, and the Go embedding issue where wrapper types exposed all interfaces.\n\n5. Then the"
+  },
+  {
+   "source": "prompt",
+   "commit": "74114ec205",
+   "checkpoint": "723a52ba8b6f",
+   "text": "Implement the following plan:\n\n# Plan: Implement Cursor Agent as External Binary\n\n## Context\n\nThe external agent protocol and adapter are already implemented (Steps 1-4 from the previous plan are complete). The built-in `cmd/entire/cli/agent/cursor/` package has been deleted. Now we need to implement the cursor agent as an external binary (`entire-agent-cursor`) that implements the external agent protocol, keeping it in this repo for now.\n\nThe binary will be at `cmd/entire-agent-cursor/main.go` — a standalone Go binary that can be discovered via `$PATH` by the CLI's `external.DiscoverAndRegister()`.\n\n## Step 1: Create the Binary Entry Point\n\n**File:** `cmd/entire-agent-cursor/main.go`\n\nA simple `main()` that dispatches subcommands. Since this is a protocol binary (not a user CLI), use a sw"
+  },
+  {
+   "source": "commit_message",
+   "commit": "844e915630",
+   "checkpoint": "01M376R2X4FQ0PQDXHM07WS96R",
+   "text": "Remove Gemini CLI support\n\nDrop the geminicli agent package and everything that registered, installed,\ncaptured, reviewed, summarized, imported, or resumed Gemini sessions, plus\nits E2E runner, CI matrix entries, skills, and docs.\n\nTwo things stay for users who already used Gemini with Entire:\n\n- Hooks left in .gemini/settings.json: `entire hooks gemini <verb>` is now a\n  silent no-op, and `entire doctor`, `entire disable --uninstall`, and\n  `entire agent remove gemini` strip Entire's entries while keeping the\n  user's own hooks and settings. Uninstall's preflight and summary see them\n  even when they are the only artifact left.\n- Historical checkpoints: a read-only parser in transcript/geminilegacy\n  keeps explain, summaries, and chunk reassembly working for checkpoints\n  tagged \"Gemini CLI\".\n\nTask checkpoints now chunk with the session's agent type instead of\nDetectAgentTypeFromContent, which only ever recognized Gemini."
+  },
+  {
+   "source": "transcript",
+   "commit": "844e915630",
+   "checkpoint": "01M376R2X4FQ0PQDXHM07WS96R",
+   "text": "[user] can you review this branch/changes\n[assistant] I've opened the PR: https://github.com/entireio/cli/pull/2570\n\nIt's one commit, `844e915630 Remove Gemini CLI support`, on `soph/remove-gemini` against `main`.\n\nThe description covers:\n- **Kept for existing users:** the silent no-op for old Gemini hooks, the cleanup in `entire doctor`, `entire disable --uninstall` and `entire agent remove gemini`, and continued reading of old Gemini checkpoints.\n- **Behaviour changes:** shadow-branch detection, task-checkpoint splitting, condensation, symlinked `.gemini`, and the repo's own Gemini config.\n- **Not handled:** settings that name `gemini` as summa"
+  },
+  {
+   "source": "prompt",
+   "commit": "844e915630",
+   "checkpoint": "01M376R2X4FQ0PQDXHM07WS96R",
+   "text": "can you review this branch/changes\n\n---\n\ncan you review again"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e75b832e4d",
+   "checkpoint": "01M25TX5G5TZ9416EZ64JGSHDF",
+   "text": "build: bump Go to 1.27.1 and golangci-lint to 2.13.2\n\nGo 1.26.6 -> 1.27.1 in go.mod and mise.toml, kept aligned per the comment\nthere.\n\nThe golangci-lint bump is forced rather than optional: 2.11.3 refuses to lint a\nmodule targeting a newer Go than it was built with (\"the Go language version\n(go1.26) used to build golangci-lint is lower than the targeted Go version\n(1.27.1)\"), and 2.13.0 is the first release built with go1.27, so 2.13.x is the\nfloor. It arrives with three linter behaviour changes, resolved here rather than\nsuppressed.\n\ngoconst (2.13 scans composite literals, 2457 new findings). Two settings\nrestore the prior scope for the 2328 that are test fixtures and map-literal\nkeys; a Go toolchain bump should not also adopt a stricter linter. The\nremaining 129 become named constants: a new names.go for command/verb names,\nshared control-plane table headers and count-dependent display nouns; a\ntoken-report vocabulary block shared by `session tokens`, `checkpoint tokens`\nand `tokens profile`; canonical activity agent IDs; explain row labels; hook\ncategories; recap footer hints; and per-package constants in review,\nclaudecode, copilotcli, benchutil, strategy and transcript/compact.\n\nEvery substitution preserves the string value, so the --json contracts and test\nassertions are untouched.\n\ngoconst's \"such constant already exists\" hints are deliberately not followed\nwhere they point at a same-valued constant in an unrelated domain\n(agentFlagName for the `agent` command, trailR"
+  },
+  {
+   "source": "transcript",
+   "commit": "e75b832e4d",
+   "checkpoint": "01M25TX5G5TZ9416EZ64JGSHDF",
+   "text": "[user] let's update to latest go\n[assistant] PR opened: **https://github.com/entireio/cli/pull/2356**\n\n- **Branch:** `soph/go-1.27` → `main`\n- **Commit:** one commit, 72 files, +468/−296\n- Pre-push `mise run lint` passed (all five tasks, 0 issues), as the repo requires\n\nTwo notes on how I staged it:\n\nI committed to a new `soph/go-1.27` branch rather than the worktree's own `worktree/green-harbor-19a3`, matching the repo's naming convention. And I staged the 72 paths explicitly instead of `git add -A`, since `test:ci` can rewrite `.opencode/package-lock.json` — it happened to be clean this run, but the explicit staging means it couldn't h"
+  },
+  {
+   "source": "prompt",
+   "commit": "e75b832e4d",
+   "checkpoint": "01M25TX5G5TZ9416EZ64JGSHDF",
+   "text": "let's update to latest go\n\n---\n\n<task-notification>\n<task-id>bkh55cy8m</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph--herdr-worktrees-cli-worktree-green-harbor-19a3/e7cb8a0a-5454-46d4-afab-1614842b3b7b/tasks/bkh55cy8m.output</output-file>\n<status>completed</status>\n<summary>Background command \"Run full CI test suite\" completed (exit code 0)</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>by3ux8hn9</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph--herdr-worktrees-cli-worktree-green-harbor-19a3/e7cb8a0a-5454-46d4-afab-1614842b3b7b/tasks/by3ux8hn9.output</output-file>\n<status>completed</status>\n<summary>Background command \"Final full CI test run\" completed (exit code 0)</summary>\n<"
+  }
+ ],
+ "cost": {
+  "usd": 0.043757,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 135,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 10584
+ },
+ "trace_id": "3f0b4fcee62bf5f354458ec1b2aa690f",
+ "error": null,
+ "trace_spans": 6
+}

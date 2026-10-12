@@ -1,0 +1,200 @@
+{
+ "issue": 2064,
+ "title": "Codex last_assistant_message is parsed then discarded on Stop/SubagentStop",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The evidence covers Codex agent creation and subagent hook wiring, but none of it mentions deciding to drop `last_assistant_message` or to leave it out of `TaskDescription`. The field was declared and then never copied across, which looks like an omission rather than a chosen behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 7,
+  "spans": 6,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/codex/lifecycle.go",
+    281,
+    296,
+    "func:parseTurnEnd"
+   ],
+   [
+    "cmd/entire/cli/agent/cursor/lifecycle.go",
+    119,
+    134,
+    "func:parseTurnEnd"
+   ],
+   [
+    "cmd/entire/cli/agent/factoryaidroid/lifecycle.go",
+    174,
+    193,
+    "func:parseTurnEnd"
+   ],
+   [
+    "cmd/entire/cli/agent/claudecode/lifecycle.go",
+    311,
+    371,
+    "func:parseSubagentStop"
+   ],
+   [
+    "cmd/entire/cli/agent/codex/lifecycle.go",
+    168,
+    186,
+    "func:parseSubagentStop"
+   ],
+   [
+    "cmd/entire/cli/agent/cursor/lifecycle.go",
+    213,
+    238,
+    "func:parseSubagentStop"
+   ]
+  ],
+  "lines": 158,
+  "lines_linked": 74,
+  "checkpoints": 13
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "8bd683ea64",
+   "checkpoint": "01M4BSMV873ACG3DA56SK9RXQA",
+   "text": "claude-code: verify a Workflow agent's transcript and key each run's stop\n\nA Workflow agent's SubagentStop transcript path came straight from the hook\npayload, and the capture read whatever existing file it named into the\ncheckpoint. It is now used only when it is exactly\n<session>/subagents/workflows/<runId>/agent-<id>.jsonl for this session and\nagent inside the parent's session directory, with no link below it;\nanything else is dropped and the layout lookup applies.\n\nThat file's run is passed on as SubagentRunID. A resumed run reuses its\nagents' IDs, so its launch found the earlier run's completed record (not\nyet condensed) and added none, and its stop was then skipped as a\nduplicate, losing the run's files, transcript and tokens. The stop now\ncompletes a record of its own unless one already holds the same run's\ntranscript, whichever order the runs' stops arrive in."
+  },
+  {
+   "source": "transcript",
+   "commit": "8bd683ea64",
+   "checkpoint": "01M4BSMV873ACG3DA56SK9RXQA",
+   "text": "[user] can you find the other session in this worktree where we were working and tell me what other gaps we needed to address\n[assistant] I stopped the #2674 fix without changing anything. Another Claude session, `f1fbccf6`, started editing that worktree just as my agent began. It's working on the same findings: the attach overwrite and the dropped subagent tokens.\n\nMy agent confirmed finding 1 before it stopped. Attach takes the session's checkpoint from 100 output tokens down to 7, and main doesn't have this bug. It didn't check findings 2–5.\n\nMy suggestion is to let that session finish #2674, then rerun the Codex review on its new head to confirm all five findings are fixed. #2670 and #2687 are still in progress.\n\nI'm still w"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a41a522878",
+   "checkpoint": "01KZS95EE9F5Y6WN7DCK45QZPB",
+   "text": "feat(codex): track subagents via Codex's SubagentStart/SubagentStop hooks\n\nCodex was the one agent named in the original subagent-tracking request with zero\nsubagent tracking, even though it ships first-class hooks for it. Wire them.\n\nCodex's identity fields are the opposite of what the names suggest, and getting\nthis backwards would attribute subagent work to a session Entire has never seen:\n\n  - session_id is \"the identity shared by the root thread and all descendant\n    threads\" (session/session.rs) — the *user's* session. It maps straight to\n    SessionID.\n  - agent_id is the subagent thread's own id. Codex sends no tool_use_id, so\n    agent_id doubles as ToolUseID: it is the only value correlating a start with\n    its stop, and Entire keys pre-task state (pre-task-<id>.json) and the task\n    metadata directory on ToolUseID.\n\nSubagentStop also carries two transcripts — transcript_path is the parent rollout,\nagent_transcript_path the subagent's own. Rather than teach the framework a second\nlayout to guess, add Event.SubagentTranscriptPath so an agent can *declare* where\nits subagent transcript is; handleLifecycleSubagentEnd prefers it and falls back to\nthe Claude Code layout guess. A declared-but-missing path warns rather than\nsilently substituting, because that disagreement is exactly what went unnoticed\nwhile the guess quietly returned \"\" for every non-Claude agent.\n\nThat mechanism immediately fixes a second agent: Cursor has parsed\nagent_transcript_path into its raw str"
+  },
+  {
+   "source": "transcript",
+   "commit": "a41a522878",
+   "checkpoint": "01KZS95EE9F5Y6WN7DCK45QZPB",
+   "text": "[assistant] -subagent probe | Parent session gets hijacked (details below). |\n\n## Four confirmed defects\n\n**1. Claude Code's subagent transcript is never captured.** `handleLifecycleSubagentEnd` (`cmd/entire/cli/lifecycle.go:1152`) looks for `<slug>/agent-<id>.jsonl`. CC 2.1.221 actually writes `<slug>/<session-id>/subagents/agent-<id>.jsonl`. Production proof: every `\"subagent completed\"` line in `cli/`, `cli_experiments/` and `cli_experiments_2/` logs has `agent_id` but no `subagent_transcript` attr — it only logs when the path resolves. Consequence: task checkpoints store no subagent transcript, and fi\n[user] Review target: `Review the diff of branch soph/fix-subagent-transcript-path against main (git diff main...HEAD): cmd/entire/cli/transcript.go, cmd/entire/cli/lifecycle.go, cmd/entire/cli/transcript_test.go, cmd/entire/cli/integration_test/subagent_transcript_layout_test.go`\n\n`/simplify → 4 cleanup agents in parallel → apply the fixes`\n\nYou are improving the quality of the changed code, not hunting for bugs. Review\nit for reuse, simplification, efficiency, and altitude issues, then fix what you\nfind. Do not look for correctness bugs — that is what `/code-review` is for.\n\n## Phase 0 — Gather the\n[user] e 5 sites holding this same literal cannot import\n\n**File:** `/Users/soph/Work/entire/devenv/cli_experiments_2/cmd/entire/cli/transcript.go:112` and `:127`\n\nThe diff converted exactly one call site (`lifecycle.go:847`). `filepath.Join(dir, sessionID, \"subagents\")` still appears verbatim in four other non-test places:\n\n- `/Users/soph/Work/entire/devenv/cli_experiments_2/cmd/entire/cli/strategy/manual_commit_hooks.go:1948`\n- `/Users/soph/Work/entire/devenv/cli_experiments_2/cmd/entire/cli/review/manifest.go:446` (in a private `reviewSubagentsDir` helper — a 5-line duplicate of the new function)\n"
+  },
+  {
+   "source": "prompt",
+   "commit": "a41a522878",
+   "checkpoint": "01KZS95EE9F5Y6WN7DCK45QZPB",
+   "text": "1935 mentions that the logs are now captured, are they really? like in the shadow branch but in actual checkpoints?\n\n---\n\ndid you update pr description and also the trail description\n\n---\n\ncan you run simplify on each of the 3 PRs\n\n---\n\n<task-notification>\n<task-id>ad2ea9e15f0b96f86</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments-2/f12d4d56-00f1-45df-a94c-6a3cf2714244/tasks/ad2ea9e15f0b96f86.output</output-file>\n<status>completed</status>\n<summary>Agent \"Altitude review of PR1 diff\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<"
+  },
+  {
+   "source": "commit_message",
+   "commit": "eeaa9074b4",
+   "checkpoint": "410f22073a20",
+   "text": "feat: add Codex agent integration with E2E runner\n\nAdd full agent integration for OpenAI's Codex CLI:\n\n- Agent package (cmd/entire/cli/agent/codex/) implementing Agent,\n  HookSupport, and HookResponseWriter interfaces\n- Hook support for SessionStart, UserPromptSubmit, Stop events via\n  .codex/hooks.json config files\n- E2E test runner (e2e/agents/codex.go) for running Codex in E2E tests\n- Agent registered as \"codex\" with type \"Codex\"\n- 21 unit tests covering lifecycle parsing, hook install/uninstall,\n  idempotency, config preservation, and interface compliance\n\nCodex hooks use the same JSON stdin/stdout transport as Claude Code.\nPreToolUse is pass-through (shell only, no lifecycle action needed).\nNo SessionEnd hook — handled gracefully by the framework."
+  },
+  {
+   "source": "transcript",
+   "commit": "eeaa9074b4",
+   "checkpoint": "410f22073a20",
+   "text": "[assistant] dentity, transcript storage, session management |\n| `types.go` | Hook input structs (`sessionStartRaw`, `userPromptSubmitRaw`, `stopRaw`), config types (`HooksFile`, `MatcherGroup`, `HookEntry`) |\n| `lifecycle.go` | `ParseHookEvent()` mapping: SessionStart→SessionStart, UserPromptSubmit→TurnStart, Stop→TurnEnd, PreToolUse→nil (pass-through) |\n| `hooks.go` | Hook management: `InstallHooks`/`UninstallHooks`/`AreHooksInstalled` via `.codex/hooks.json` |\n\n**Interfaces implemented:**\n- `agent.Agent` (core)\n- `agent.HookSupport` (lifecycle hooks)\n- `agent.HookResponseWriter` (systemMessage output)\n\n"
+  },
+  {
+   "source": "commit_message",
+   "commit": "3c37cf55fa",
+   "checkpoint": "7fc7ad5b176b",
+   "text": "Add Factory AI Droid agent integration\n\nImplement the agent.Agent interface for Factory AI Droid, including\nsession lifecycle management, hook handling, and JSONL transcript\nparsing. Register the new agent in the agent registry and wire it\ninto config detection, hooks, and summarization."
+  },
+  {
+   "source": "transcript",
+   "commit": "3c37cf55fa",
+   "checkpoint": "7fc7ad5b176b",
+   "text": "[assistant] pproaches:\n\n### Approach 1: Full Clone of Claude Code Pattern (Recommended)\n\nCreate `cmd/entire/cli/agent/factoryai/` mirroring the Claude Code structure exactly:\n- Same file layout (`factoryai.go`, `lifecycle.go`, `hooks.go`, `types.go`, `transcript.go` + tests)\n- Reuse the existing `transcript` package for JSONL parsing (since Factory Droid uses the same format)\n- Implement all optional interfaces: `HookSupport`, `HookHandler`, `TranscriptAnalyzer`, `TranscriptPreparer`, `TokenCalculator`, `SubagentAwareExtractor`\n- Hook config in `.factory/settings.json` (project-level)\n- `FACTORY_PROJECT_D\n[assistant] n: Factory AI Droid Agent Integration\n\n### Section 1: Package Structure & Identity\n\n```\ncmd/entire/cli/agent/factoryai/\n├── factoryai.go          # Core Agent implementation + init() registration\n├── lifecycle.go          # ParseHookEvent + compile-time assertions\n├── types.go              # Hook input structs, transcript types, tool constants\n├── hooks.go              # HookSupport + HookHandler implementation\n├── transcript.go         # TranscriptAnalyzer, TokenCalculator, SubagentAwareExtractor\n├── lifecycle_test.go     # Tests for ParseHookEvent (all 9 hook types)\n├── hooks_test.go        \n[user] en directly\n   - `cmd/entire/cli/agent/factoryaidroid/factoryaidroid.go` - Written directly\n   - `cmd/entire/cli/agent/registry.go` - Edited to add constants\n   - `cmd/entire/cli/agent/factoryaidroid/lifecycle.go` - Written directly\n   - `cmd/entire/cli/agent/factoryaidroid/lifecycle_test.go` - Written directly\n   - `cmd/entire/cli/agent/factoryaidroid/hooks.go` - Written by subagent\n   - `cmd/entire/cli/agent/factoryaidroid/transcript.go` - Written by subagent\n\n15. **What's NOT done yet**:\n   - hooks_test.go not created\n   - transcript_test.go not created\n   - No compilation verification yet\n"
+  },
+  {
+   "source": "prompt",
+   "commit": "3c37cf55fa",
+   "checkpoint": "7fc7ad5b176b",
+   "text": "Base directory for this skill: /Users/alisha/.claude/plugins/cache/claude-plugins-official/superpowers/4.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n## Overview\n\nHelp turn ideas into fully formed designs and specs through natural collaborative dialogue.\n\nStart by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.\n\n<HARD-GATE>\nDo NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.\n</HARD-GATE>\n\n## Anti-Pattern: \"This Is Too Simple To Need A Design\"\n\nEvery project"
+  },
+  {
+   "source": "commit_message",
+   "commit": "bfe53dc122",
+   "checkpoint": "01M0G5T6BBH7NGQE7KDRZHWFDS",
+   "text": "top-capture\n\nBoth sides grew overlapping subagent work. Resolutions:\n\n- agent/event.go: our SubagentTranscript and main's SubagentTranscriptPath\n  were duplicates of the same \"agent-declared subagent transcript\" concept.\n  Unified onto main's SubagentTranscriptPath, so Codex's and Cursor's\n  declarations survive alongside Claude Code's SubagentStop, which now\n  populates the same field. Kept our Final flag (main has no equivalent; it\n  disambiguates the launch-time stub from true completion).\n- lifecycle.go: kept our event.Final dispatch and durable task-record\n  machinery, and adopted main's declaredSubagentTranscript helper as the\n  single resolution path, so a declared-but-missing path warns and falls back\n  to layout resolution. Also carried main's capture-degradation handling\n  (logStatusDegrade plus the UntrackedScanSkipped new-file guard) and\n  recordCaptureDegraded, which has live callers.\n- checkpoint/persistent.go: the dead per-write IsTask task writer stays\n  deleted (#2058); writeTaskRecordEntries stays. Main's edits to those\n  deleted functions are discarded, except its size cap (below).\n- strategy/manual_commit_condensation.go: carried main's subagent-transcript\n  size cap into the task materializer, which had no size guard. The cap is\n  measured against sanitized bytes and skips only the jsonl, recording the\n  new taskTranscriptReasonTooLarge category in task.json; the path goes to\n  the log, never to the pushed reason.\n- lifecycle_test.go: both branches added "
+  },
+  {
+   "source": "transcript",
+   "commit": "bfe53dc122",
+   "checkpoint": "01M0G5T6BBH7NGQE7KDRZHWFDS",
+   "text": "[user] tire/cli/agent/claudecode/hooks.go` — added `HookNameSubagentStop = \"subagent-stop\"` constant only (no template/InstallHooks/UninstallHooks wiring — that's Task 4).\n- `cmd/entire/cli/agent/claudecode/lifecycle.go` — `HookNames()` appends the new hook; `ParseHookEvent` dispatches `HookNameSubagentStop` to new `parseSubagentStop`; `parseSubagentEnd` explicitly sets `Final: false`; new `parseSubagentStop(ctx, stdin)` builds `agent.Event{Type: SubagentEnd, ..., SubagentTranscript: raw.AgentTranscriptPath, Final: true}` plus a `logging.Debug` of present payload key names (never values).\n- `cmd/enti\n[user] pes.go` — `subagentStopHookInputRaw` with JSON tags `session_id, transcript_path, agent_id, agent_transcript_path, tool_use_id` — matches the plan's payload exactly\n- `cmd/entire/cli/agent/claudecode/lifecycle.go` — `HookNames()` appends it; `ParseHookEvent` wires `case HookNameSubagentStop: return c.parseSubagentStop(ctx, stdin)`; new `parseSubagentStop` (line ~194) builds `agent.Event{Type: SubagentEnd, SessionID, SessionRef: raw.TranscriptPath, ToolUseID, SubagentID: raw.AgentID, SubagentTranscript: raw.AgentTranscriptPath, Final: true, Timestamp: time.Now()}`; existing `parseSubagentEnd` g\n[user] t-`agent_transcript_path` case, and the `handleLifecycleSubagentEnd` payload-path preference. The plan's explicit trap (\"event.go, NOT agent/types.go\") was avoided.\n- **Parser consistency is good.** `parseSubagentStop` mirrors its siblings exactly: `agent.ReadAndParseHookInput[T]`, same `Event` construction shape, `Timestamp: time.Now()`. The `ctx` threading through `ParseHookEvent` is minimal and only feeds the log. `WithComponent(ctx, \"agent.claudecode\")` matches the package's existing convention (lifecycle.go:280).\n- **Event field comments are constraints, not narration.** `SubagentTranscri"
+  },
+  {
+   "source": "commit_message",
+   "commit": "6e9672cdcb",
+   "checkpoint": "f5946bdba9af",
+   "text": "fix hooks"
+  },
+  {
+   "source": "transcript",
+   "commit": "6e9672cdcb",
+   "checkpoint": "f5946bdba9af",
+   "text": "[assistant] put` method** - `cursor.go:76` implements `ParseHookInput(hookType agent.HookType, ...)` which is **not part of the `Agent` interface**. The interface uses `ParseHookEvent(hookName string, ...)` (in `lifecycle.go`). The `ParseHookInput` method appears to be dead code from an older interface pattern that no other agent implements.\n\n2. **No `TranscriptAnalyzer` implementation** - Claude Code and OpenCode both implement `TranscriptAnalyzer` (for `GetTranscriptPosition`, `ExtractModifiedFilesFromOffset`, `ExtractPrompts`, `ExtractSummary`). Since Cursor uses the same JSONL format as Claude Code, i\n[assistant] Now I'll add the `TranscriptAnalyzer` implementation to `lifecycle.go`. The Cursor agent uses the same JSONL format as Claude Code, so the implementations are structurally identical - they delegate to the shared `transcript` package.\n[assistant] ing/json`)\n\n**2. Removed unused `Role` field from `transcript/types.go`**\n- The `Role` field on `transcript.Line` was never read by any code\n\n**3. Implemented `TranscriptAnalyzer` for Cursor (`cursor/lifecycle.go`)**\n- `GetTranscriptPosition()` - line count for JSONL transcripts\n- `ExtractModifiedFilesFromOffset()` - files modified since a given line\n- `ExtractPrompts()` - user prompts from transcript\n- `ExtractSummary()` - last assistant text as summary\n- Added compile-time interface assertion\n\n**4. Fixed `FormatResumeCommand`**\n- Changed from invalid `\"cursor --resume \" + sessionID` to `\"Ope"
+  },
+  {
+   "source": "prompt",
+   "commit": "6e9672cdcb",
+   "checkpoint": "f5946bdba9af",
+   "text": "please review PR 392 compared to the instructions in pr 442\n\n---\n\nwrite this out to review-392.md and then fix the issues\n\n---\n\nCursorAgent cannot implement TranscriptAnalyzer because the transcript does not tell us which files were modified\n\n---\n\nlets add a comment in types.go explaining that Type is for claude and Role is for Cursor\n\n---\n\nnow update review-392.md to reflect what we actually changed\n\n---\n\ncommit this\n\n---\n\nlets now improve the test coverage for the checkpoint lifecycle. there is a sample.jsonl file with a reference transcript from cursor\n\n---\n\nThis session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nAnalysis:\nLet me chronologically analyze the conversation:\n\n1. **User's first r"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "Capture Claude Code background subagents into checkpoints\n\nClaude Code runs most Agent calls in the background without the model passing run_in_background (or passes it as the string \"true\"), so the launch was classified as foreground, completed empty, and dropped. Its SubagentStop also carries agent_id but never tool_use_id, so even a recorded marker was never found.\n\nClassify the launch from tool_response.status (\"async_launched\" / \"completed\"), which Claude Code reports authoritatively, falling back to run_in_background (boolean or boolean string). At SubagentStop, find the launch record by agent ID (preferring a live record, for resumed subagents) and adopt its tool_use_id. The integration harness now sends the payload shapes Claude Code 2.1.288 actually sends."
+  },
+  {
+   "source": "transcript",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "[user]  tool_input has nothing to detect.\n\nWhat happens next, on the foreground path:\n- completeSubagentTaskRecord runs at post-task time. The subagent has only just started, so no files have changed yet.\n- lifecycle.go:1972 logs \"no file changes detected, skipping task record\" and cleans up the pre-task state. bypassNoChangesSkip is never set on this path.\n- When SubagentStop arrives there's no in-flight marker, so lifecycle.go:1698 warns \"no in-flight marker for completed subagent — foreground dedup, …\" and drops the event.\n\nEvidence (the agent-scenarios repo):\n\n┌───────────────────────────────────\n[assistant] _background` from `tool_input`. If it's absent or is the string `\"true\"`, the launch is treated as foreground. The launch is then finished immediately by `completeSubagentTaskRecord`, which skips at `lifecycle.go:1972` because nothing has changed yet. That matches the report.\n\n**There's a better signal than `tool_input`.** The Claude transcripts for both runs record the async launch result as:\n```\n{\"isAsync\":true,\"status\":\"async_launched\",\"agentId\":\"aa6579c96e11a281b\",...}\n```\nSo suggestion 2 is the right one. Check `tool_response.isAsync` (or `status == \"async_launched\"`), not the text \"Async\n[assistant] s have. Cursor, Factory Droid and Vogon send only a launch-time SubagentEnd with no completion event. Codex goes through its own provisional-stop and inventory handling. Only Claude Code (`claudecode/lifecycle.go:247`) and Copilot CLI (`copilotcli/lifecycle.go:227`) send a final completion event. So for most agents, \"capture when the tool returns\" has to stay.\n\nFor Claude, the code suggests SubagentStop fires for foreground subagents too. The \"foreground dedup\" in that warning is exactly that duplicate stop event being dropped. I haven't checked that against a real payload. If it holds, Claude"
+  },
+  {
+   "source": "prompt",
+   "commit": "b6fe9c90df",
+   "checkpoint": "01M41CCR54M4RSRGK11KB6A4ZZ",
+   "text": "can you review the changes\n\n---\n\ncan you review again"
+  },
+  {
+   "source": "commit_message",
+   "commit": "c8c169e294",
+   "checkpoint": "011f239b092d",
+   "text": "cursor: resolve session file in turn and session end"
+  },
+  {
+   "source": "transcript",
+   "commit": "c8c169e294",
+   "checkpoint": "011f239b092d",
+   "text": "[assistant] expects the flat path to be returned even when the file doesn't exist.\n\nThe question is: should the test be updated or the implementation? Let me look at how the callers handle the empty return:\n\n1. `lifecycle.go:73` - returns the resolvedPath directly (could be \"\")\n2. `transcript.go:274` - returns it to the caller\n3. `manual_commit_rewind.go:657` and `:795` - uses it to read a file\n\n\n4. The flat layout test expects the flat path as a default when no nested directory exists, but the implementation now only returns paths for files that actually exist. The test setup doesn't create either file, "
+  },
+  {
+   "source": "prompt",
+   "commit": "c8c169e294",
+   "checkpoint": "011f239b092d",
+   "text": "add a test for sanitizePathForCursor to make sure \"/Users/robin/Developer/bingo\" ends up as \"Users-robin-Developer-bingo\" not \"-Users-robin-Developer-bingo\""
+  }
+ ],
+ "cost": {
+  "usd": 0.041101,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 129,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 9935
+ },
+ "trace_id": "25d716d1fcfc3cdba11e71600e26a74a",
+ "error": null,
+ "trace_spans": 6
+}

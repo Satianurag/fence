@@ -1,0 +1,86 @@
+{
+ "issue": 1965,
+ "title": "warn when a coding agent commits in an enabled repo but no session is being recorded",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The issue asks for a new warning when an agent commits but no session is recorded. The evidence covers only the stale-ENDED-session warning (rate limiting, stderr injection). It never discusses the debug-only 'no session found' path at line 414, so nobody chose silence there as a deliberate behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 2,
+  "symbols_named": 9,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    414,
+    414,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    1117,
+    1119,
+    "func:warnStaleEndedSessions"
+   ]
+  ],
+  "lines": 4,
+  "lines_linked": 3,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "b616e73dea",
+   "checkpoint": "7841b7892888",
+   "text": "perf: warn when stale ENDED sessions accumulate\n\nAdd detection and rate-limited warning for non-FullyCondensed ENDED\nsessions that incur PostCommit processing cost on every commit.\n\nWhen >= 3 stale sessions are found, emit a stderr warning pointing\nusers to 'entire clean --force'. Warning is rate-limited to once per\n24h via a sentinel file in .git/entire-sessions/."
+  },
+  {
+   "source": "transcript",
+   "commit": "b616e73dea",
+   "checkpoint": "7841b7892888",
+   "text": "[assistant] -|\n| `lifecycle.go` | Call `CondenseAndMarkFullyCondensed` in stop hook after session marked ended | ~16 |\n| `manual_commit_condensation.go` | New `CondenseAndMarkFullyCondensed` function | ~115 |\n| `manual_commit_hooks.go` | In PostCommit: mark ENDED sessions with no data + no new content as `FullyCondensed` (the 7-line block from `97083b6c`) | ~7 |\n\nOne small cleanup: the lifecycle.go comment currently says *\"Fail-open: PostCommit's force-condense safety net catches it\"* — that comment was written when force-condense still existed. Needs updating to just *\"Fail-open: PostCommit will still pr\n[assistant] tCommit\n- Tests: `phase_wiring_test.go`, `phase_postcommit_test.go`, integration test for #591\n\n**PR B** (`perf/warn-stale-ended-sessions` off main) — ~90 lines:\n- `countStaleEndedSessions` helper\n- `warnStaleEndedSessions` using `GetGitCommonDir` for correct worktree path\n- Rate-limited (24h) stderr warning at ≥3 stale sessions, verified with `os.Chtimes` in tests\n- Wire into PostCommit after `findSessionsForWorktree`\n\n**Shadow-tree discovery dropped** from #599 entirely — eager condense + warning covers the problem without the carry-forward edge-case complexity.\n\nReady to execute whenever yo\n[user] ttern**: tests using `t.Chdir()` must NOT use `t.Parallel()` — will panic at runtime per codebase rules and Go test framework constraints\n\n3. Files and Code Sections:\n\n   - **`cmd/entire/cli/strategy/manual_commit_hooks.go`** (primary target for both PRs)\n     - PR A: Remove `forceCondensed bool` field from `postCommitActionHandler` struct, remove `forceCondenseThreshold` const, remove `isStaleEnded` function, remove force-condense case from `HandleCondenseIfFilesTouched`, collapse `if handler.forceCondensed` branch in carry-forward section\n     - PR B: Add `staleEndedSessionWarnThreshold=3`, "
+  },
+  {
+   "source": "prompt",
+   "commit": "b616e73dea",
+   "checkpoint": "7841b7892888",
+   "text": "a new release of the cli weas just released with performance improvements, so check this out please. Then see this PR, https://github.com/entireio/cli/pull/599 - the beginning is sound for eager condense, but then i think the end might not be needed or it might make sense now to split this up into two PRs? investigate first current state of cli, then perforamnce fixes in latest release, then how best to structure 599 /superpowers:brainstorming\n\n---\n\nwe already removed the 1hr threshold, so that shouldn't be there I don't think. take a look again from what's on the branch. And then, for the clarifying question I would say b then. Also, please take a look at the recent comments on this issue too, https://github.com/entireio/cli/issues/591\n\n---\n\nwhat do you think is best here?\n\n---\n\nokay and "
+  },
+  {
+   "source": "commit_message",
+   "commit": "97e052338c",
+   "checkpoint": "d924cd6bb74b",
+   "text": "fix: address code review findings for stale session warning\n\n- Replace os.Stderr mutation with injectable stderrWriter package var\n- Add comment explaining intentional shadow branch re-check in\n  isWarnableStaleEndedSession (PostCommit deletes branches mid-execution)\n- Replace map with slice in test for deterministic iteration order\n- Extract testTranscript constant to fix goconst lint\n- Add t.Chdir warning comments to non-parallel tests"
+  },
+  {
+   "source": "transcript",
+   "commit": "97e052338c",
+   "checkpoint": "d924cd6bb74b",
+   "text": "[assistant]  Severity | Finding |\n|----------|---------|\n| **Critical** | `TestPostCommit_WarnStaleEndedSessions_AfterProcessing` mutates `os.Stderr` globally — fragile for concurrent tests. Works today because `warnStaleEndedSessions` reads the variable at call time, but should be documented or injected. |\n| **Important** | `isWarnableStaleEndedSession` re-checks shadow branch existence after `listAllSessionStates` already filtered orphans — this is intentionally correct (PostCommit deletes branches mid-execution) but **needs a comment** explaining why it's not redundant. |\n| **Important** | Warning coun\n[user]  for concurrent tests.** The test replaces `os.Stderr` with an `os.Pipe()` and restores it in a deferred function. This is process-global state. If `PostCommit` writes the warning via the production `warnStaleEndedSessions` path (which hardcodes `os.Stderr`), the capture works only because `warnStaleEndedSessions` reads the `os.Stderr` variable at call time rather than caching it at init. This is correct today but would silently break if `warnStaleEndedSessions` were refactored to capture stderr at initialization. **Suggested fix:** Since `warnStaleEndedSessionsTo` already accepts an `io.Write\n[assistant] Now let me also check how `warnStaleEndedSessions` calls `warnStaleEndedSessionsTo` and the PostCommit call site.\n[assistant] es:\n\n`★ Insight ─────────────────────────────────────`\n**Fix #1 (Critical):** Instead of mutating `os.Stderr`, we'll make `PostCommit` use an injectable `stderrWriter` package variable. The existing `warnStaleEndedSessionsTo` already takes an `io.Writer` — we just need to thread it through. This is the same pattern used for `warnStaleEndedSessionsTo` in the rate-limit test.\n\n**Fix #2 (Important):** The shadow branch re-check is intentional because PostCommit deletes branches between `listAllSessionStates` and the warning. A comment makes this clear for future readers.\n`────────────────────────"
+  },
+  {
+   "source": "prompt",
+   "commit": "97e052338c",
+   "checkpoint": "d924cd6bb74b",
+   "text": "can you review this commit, commit to push: 9ea3f0af, run lint, mise, integration, full siute of tests please\n\n---\n\n<task-notification>\n<task-id>br3n89499</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-peytonmontei-Documents-entire-devenv-entireio-cli--worktrees-pr-599-fix/7cc1cf7f-5e3a-43cd-83de-d742b02954e8/tasks/br3n89499.output</output-file>\n<status>completed</status>\n<summary>Background command \"Run gofmt formatting\" completed (exit code 0)</summary>\n</task-notification>\nRead the output file to retrieve the result: /private/tmp/claude-501/-Users-peytonmontei-Documents-entire-devenv-entireio-cli--worktrees-pr-599-fix/7cc1cf7f-5e3a-43cd-83de-d742b02954e8/tasks/br3n89499.output\n\n---\n\n<task-notification>\n<task-id>b8u6upekm</task-id>\n<tool-use-id>"
+  }
+ ],
+ "cost": {
+  "usd": 0.023869,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 133,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 5617
+ },
+ "trace_id": "92ec29eb1e6485bf53a57c81ac4145d9",
+ "error": null,
+ "trace_spans": 6
+}

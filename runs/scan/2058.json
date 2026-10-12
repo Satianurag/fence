@@ -1,0 +1,170 @@
+{
+ "issue": 2058,
+ "title": "Subagent data does not survive condensation — durable storage for subagent transcripts",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.6,
+  "rationale": "The issue reports that OPF redaction is not applied to subagent transcripts on the git-refs path, plus a stale comment at :1112. The evidence shows OPF rewrite was deliberately wired only to the git-branch primary pre-push path, and the backend commits flag the mirror/OPF gap as a hazard, but nothing shows anyone chose to ship subagent transcripts on refs with fewer layers. The behavior is an unaddressed gap, not a recorded decision.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 4,
+  "symbols_named": 15,
+  "spans": 5,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    398,
+    398,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    1112,
+    1112,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_opf_rewrite.go",
+    626,
+    667,
+    "func:collectTreeBlobs"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_opf_rewrite.go",
+    260,
+    411,
+    "func:RewriteUnpushedV1WithOPF"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/open.go",
+    155,
+    160,
+    "func:resolvePrimaryType"
+   ]
+  ],
+  "lines": 202,
+  "lines_linked": 23,
+  "checkpoints": 6
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "aaddab2287",
+   "checkpoint": "00610aca61af",
+   "text": "refactor(redact): remove vestigial shard-scoping from pre-push OPF rewrite\n\nThe pre-push rewrite redacts the whole cumulative tree for every\nunapplied commit (the C1 whole-tree fix), so the shard-scoping path was\ndead: shardPath was always \"\", which made shouldDescend/insideShard\nalways return true and left parseShardPathFromCommitMessage uncalled.\n\nDrop the shardPath parameter from collectTreeBlobs and\nrebuildTreeWithCachedRedaction, delete the unreachable guard branches\nand the now-unused helpers, and remove the tests that only covered the\nremoved symbols. Behavior is unchanged — both walkers still recurse the\nwhole tree and redact every file except content_hash.txt."
+  },
+  {
+   "source": "transcript",
+   "commit": "aaddab2287",
+   "checkpoint": "00610aca61af",
+   "text": "[user] (batch guard 674-678 — the pattern to mirror)\n- `/Users/soph/Work/entire/devenv/cli_experiments/cmd/entire/cli/trailers/trailers.go:72,294-300` (anchor `HasOPFApplied`)\n- `/Users/soph/Work/entire/devenv/cli_experiments/cmd/entire/cli/strategy/manual_commit_opf_rewrite.go:211-213` (stale-tracking-ref divergence gap)\n- `/Users/soph/Work/entire/devenv/cli_experiments/cmd/entire/cli/strategy/push_common.go:329-474` (OPF-then-recovery integration test gap)</result>\n<usage><subagent_tokens>157233</subagent_tokens><tool_uses>37</tool_uses><duration_ms>350110</duration_ms></usage>\n</task-notification>\n[assistant] tracing the code directly (not just relaying the sub-reviews).\n\n---\n\n## 🔴 Critical\n\n### C1 — Shard-scoping under-redacts every checkpoint except the newest in a multi-commit push (verified)\n`strategy/manual_commit_opf_rewrite.go:307-323`, `rebuildTreeWithOPF`\n\nThe rewrite rebuilds each commit's tree from **`oldCommit.TreeHash`** (its *original* 7-layer tree), redacting **only that commit's own shard** and byte-copying everything else. The justification (`rebuildV1Commit` comment) is that out-of-shard files are \"already redacted (prior OPF-applied push).\"\n\nThat assumption holds **only when you \n[assistant] Done — dead code removed, everything green.\n\n## Cleanup summary (net −145 lines)\n\nRemoved the vestigial shard-scoping machinery left over after the C1 switch to whole-tree redaction:\n\n**`manual_commit_opf_rewrite.go`:**\n- Deleted `parseShardPathFromCommitMessage` (uncalled in production).\n- Deleted `shouldDescend` and `insideShard` (always returned `true` once `shardPath` was always `\"\"`).\n- Dropped the `shardPath` parameter from `collectTreeBlobs` and `rebuildTreeWithCachedRedaction`, and removed the now-always-true guard branches (the verbatim-copy paths that could never be hit). Both walker"
+  },
+  {
+   "source": "prompt",
+   "commit": "aaddab2287",
+   "checkpoint": "00610aca61af",
+   "text": "can you review the branch / PR\n\n---\n\n<task-notification>\n<task-id>a39dad85078d17777</task-id>\n<tool-use-id>toolu_01Uym2ERsijFEfsA5qsmYqQo</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/8b9205cf-916e-4157-b23a-7c538165e5e0/tasks/a39dad85078d17777.output</output-file>\n<status>completed</status>\n<summary>Agent \"Review settings, trailers, cleanup, prompts\" came to rest</summary>\n<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>Confirmed a minor inconsistency: `copyMetadataDir` was changed to thread `ctx` through its signature (with `_ = ctx // kept for future use`), but"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b21c91e65e",
+   "checkpoint": "01KZY2CT0ES9W0J2DX6SAB7DQM",
+   "text": "privacy_filter.enabled: true but an empty effective\ncategory set (categories omitted, {}, or all-false), the model scan\nnever ran, yet the pre-push rewrite still stamped Entire-OPF-Applied:\ntrue on every rebuilt commit. Later rewrites treat that trailer as\nproof the commit was scanned and skip it permanently, so fixing the\nconfig afterwards never repaired the falsely-attested commits, and\nprose PII that only the model layer detects could reach the remote.\n\nFail closed instead, at two layers:\n\n- RewriteUnpushedV1WithOPF aborts with the new OPFNoCategoriesError\n  sentinel before any commit is rebuilt, so no trailer is stamped and\n  a corrected config scans the same commits on the next push. The\n  check sits before the breaker check so the user gets config-specific\n  remediation rather than 'verify your OPF install'.\n- BatchBytesWithPrivacyFilter returns ErrOPFNoEnabledCategories for\n  the enabled-with-zero-categories state instead of silently returning\n  regex-only output, as defense in depth for its trailer-stamping\n  caller. Unconfigured/disabled/breaker-tripped still return regex-only\n  output with no error, unchanged.\n\nRejecting the shape at settings validation was considered and\ndeliberately NOT done: hooks swallow settings.Load errors\n(EnsureRedactionConfigured logs and returns), so a Load-time rejection\nwould leave OPF unconfigured and let the push proceed regex-only with\nno message at all — a silent unprotected push instead of a loud abort.\nThe gate only works when the "
+  },
+  {
+   "source": "transcript",
+   "commit": "b21c91e65e",
+   "checkpoint": "01KZY2CT0ES9W0J2DX6SAB7DQM",
+   "text": "[user] git workflow\n- Checkpoint and session-state mutations — corrupted shadow branches, broken session linkage, or lost condensation data are difficult to recover\n- Transcript condensation and redaction (`manual_commit_condensation.go`) — content pushed to the remote core cannot be recalled\n- Auth and core resolution (`grant.go`, `corecmd.go`) — check for incorrect permission checks, wrong core selection, or ref ambiguity\n- Agent hook integrations — verify that the session-start, pre-commit, post-commit, and stop hook contracts are correctly honored for the affected agent(s)\n- Interactive-only outp"
+  },
+  {
+   "source": "prompt",
+   "commit": "b21c91e65e",
+   "checkpoint": "01KZY2CT0ES9W0J2DX6SAB7DQM",
+   "text": "hand off from the most recent Claude Code session — read its final handoff brief and evaluate PR #1951 as it instructs\n\n---\n\ni think there are too many tests, what do you think?\n\n---\n\nyep go ahead. Also, take a look at existing tests we have too, like don't want to rewrite anything we have already, existing infrastructure too. Also, use this as a test guide and add to your agent.md\n\n## Tests and Comments\n\n- Tests are not required merely because production code changed. Add or modify tests only when they protect meaningful observable behavior, a non-trivial invariant or boundary, or a concrete regression.\n- Before adding a test, identify the realistic regression it would catch and why existing coverage would not catch it. If the only rationale is coverage, symmetry, or \"the code changed,\" o"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d0e4056687",
+   "checkpoint": "b6014c28999a",
+   "text": "Reframe backend taxonomy: git-branch type + one-of-each-type mirrors\n\nThe registered type \"git\" conflated \"uses git\" with \"stores on a git branch\".\nRename it to \"git-branch\" (the current backend stores the committed record on\nthe entire/checkpoints/v1 branch); this leaves room for a future git-refs\nbackend in the same git-backed family.\n\nReplace the string-equality constraints with a declared capability and a\ntopology rule:\n\n- registeredBackend.gitBacked marks backends whose committed record lives in\n  this repo's git object store. Only git-backed backends may be the primary\n  (the lifecycle — resume/doctor/explain/push/cleanup/OPF — drives the primary\n  through the repo and its refs). buildPrimary checks the capability instead of\n  comparing against the literal \"git\".\n- A backend type may appear at most once across the topology (primary +\n  mirrors). This is the conservative form of \"no two backends may write the\n  same target\": two backends of the same type share the same refs/storage\n  today, so a git-branch mirror under a git-branch primary would double-write\n  v1. It deliberately permits a different git-backed backend (e.g. a future\n  git-refs) to mirror alongside a git-branch primary — the branch<->refs\n  parallel-rollout topology — which the previous \"no git-backed mirror\" block\n  would have forbidden.\n\nA future per-mirror config (same type, distinct repo/refs) could relax the\none-of-each-type rule further."
+  },
+  {
+   "source": "transcript",
+   "commit": "d0e4056687",
+   "checkpoint": "b6014c28999a",
+   "text": "[assistant] anedCheckpoints` rewrites the primary ref directly (`strategy/cleanup.go:395,482`) → mirrors never see checkpoint *deletes*.\n- OPF re-redaction rewrites `entire/checkpoints/v1` at pre-push (`strategy/manual_commit_opf_rewrite.go:213,731`) → a mirror written at checkpoint time **never gets OPF re-redacted**. That's a privacy hazard, not just a sync gap.\n\nThis is the most important finding. It means \"mirror = best-effort write fan-out\" is only safe if we explicitly accept that mirrors can hold un-OPF'd content and stale (un-deleted) checkpoints — or we extend fan-out to cover delete + OPF. Worth\n[assistant] ates the local v1 ref before pushing.\n- So a checkpoint can be written locally *without* OPF, and only gets the OPF pass when it's about to leave the machine (push). Implementation lives in `strategy/manual_commit_opf_rewrite.go`; the full flow is in `docs/security-and-privacy.md`.\n\n**Why it matters for your Phase 2 plan:** Codex flagged that OPF rewrites the v1 ref *directly* at pre-push, outside `PersistentStore.Write`. So if you fan out writes to a mirror at **checkpoint time**, that mirror gets the 7-layer content but **never the OPF re-redaction** — the 8th privacy layer that's supposed t\n[assistant] I'll finish the mechanical rename so the tree compiles, then address your mirror question directly (it's a good challenge). Let me update `open.go`."
+  },
+  {
+   "source": "prompt",
+   "commit": "d0e4056687",
+   "checkpoint": "b6014c28999a",
+   "text": "can you open a PR first so I can have a look?\n\n---\n\ncan you look at the PR comments\n\n---\n\ncan you help me understand why we claim \"primary must be git\" ?\n\n---\n\nhmm ok, \"git backend\" is I think the issue here, the current backend is \"git-branch\" backend for me more and not \"the git backend\" and we will have \"git-refs\" too... Maybe we should reframe that?\n\n---\n\n\"primary must be a git-ref-backed backend (e.g. git-branch)\".\n\nThis makes no sense, or is confusing, is \"git-backed\" more correct?\n\n---\n\nok, but don't mention \"git-notes\" anywhere I don't think we ever do that, otherwise continue\n\n---\n\nthe thing is that we probably roll out refs to branch in parallel and with the current block we couldn't right?\n\n---\n\nyes, block the same backend, and even there we could do some loosening in the future"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7c9aeab0f4",
+   "checkpoint": "3e6be7f46bc8",
+   "text": "merge: fix lint after latest main integration"
+  },
+  {
+   "source": "transcript",
+   "commit": "7c9aeab0f4",
+   "checkpoint": "3e6be7f46bc8",
+   "text": "[assistant] Constants fixed. Removing the two unused nolint directives from `manual_commit_opf_rewrite.go`."
+  },
+  {
+   "source": "prompt",
+   "commit": "7c9aeab0f4",
+   "checkpoint": "3e6be7f46bc8",
+   "text": "Merge latest main\n\n---\n\nRemove the handoff document"
+  },
+  {
+   "source": "commit_message",
+   "commit": "c7b6a00d79",
+   "checkpoint": "c9cefdc270e2",
+   "text": "Add checkpoints backend selection settings and mirror fan-out\n\nWire the registry to settings-driven backend selection and add independent\nbackend mirroring.\n\nSettings: a new `checkpoints.{primary, mirrors}` block using a discriminated\n{type, config} shape, read through a dedicated lenient loader\n(settings.LoadCheckpointsConfig). The loader is fail-soft by design — a missing\nfile, whole-file JSON syntax error, or unrelated invalid settings all resolve\nto \"no config\" so checkpoint construction defaults to git; it errors only when\na present `checkpoints` block is itself invalid. This avoids making Open newly\nfail on unrelated malformed settings (the strict settings.Load path still\nsurfaces those for normal commands). The field also lives on EntireSettings so\nthe strict loader accepts a `checkpoints` key.\n\nOpen: builds the primary and mirrors through the registry. The primary must be\ngit (attach/resume/push/doctor/cleanup/OPF all assume a git refs.Primary), so a\nnon-git primary is rejected. A git-typed mirror is rejected too: it would share\nthe primary ref topology and double-write the same ref.\n\nfanoutStore: serves all reads from the primary and writes to the primary first,\nthen fans out best-effort to each mirror (failures logged, never surfaced).\nWith no mirrors it returns the primary unwrapped, preserving its concrete type\nand optional capabilities. When wrapping, it preserves the optional AuthorReader\niff the primary implements it, so explain's author fallback keeps working."
+  },
+  {
+   "source": "transcript",
+   "commit": "c7b6a00d79",
+   "checkpoint": "c9cefdc270e2",
+   "text": "[assistant] anedCheckpoints` rewrites the primary ref directly (`strategy/cleanup.go:395,482`) → mirrors never see checkpoint *deletes*.\n- OPF re-redaction rewrites `entire/checkpoints/v1` at pre-push (`strategy/manual_commit_opf_rewrite.go:213,731`) → a mirror written at checkpoint time **never gets OPF re-redacted**. That's a privacy hazard, not just a sync gap.\n\nThis is the most important finding. It means \"mirror = best-effort write fan-out\" is only safe if we explicitly accept that mirrors can hold un-OPF'd content and stale (un-deleted) checkpoints — or we extend fan-out to cover delete + OPF. Worth\n[assistant] ates the local v1 ref before pushing.\n- So a checkpoint can be written locally *without* OPF, and only gets the OPF pass when it's about to leave the machine (push). Implementation lives in `strategy/manual_commit_opf_rewrite.go`; the full flow is in `docs/security-and-privacy.md`.\n\n**Why it matters for your Phase 2 plan:** Codex flagged that OPF rewrites the v1 ref *directly* at pre-push, outside `PersistentStore.Write`. So if you fan out writes to a mirror at **checkpoint time**, that mirror gets the 7-layer content but **never the OPF re-redaction** — the 8th privacy layer that's supposed t"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e4a961c2eb",
+   "checkpoint": "01M41HTQTGV65F9V8Z315FAWVE",
+   "text": "strategy: resolve Codex subagent transcripts through the inventory at condensation\n\nA Codex child's rollout path reaches its task record only when the parent's\nturn-end inventory refresh sees a terminal turn. When the parent commits\nmid-turn (after the child finished, before its own Stop), condensation saw a\nrecord with no path, the Claude-layout fallback could not find a Codex\nrollout, and the checkpoint stored a reason-only task.json.\n\nmaterializeTaskRecords now offers records whose declared path is missing or\nno longer exists to the agent's inventory-aware extractor, which accepts a\nrollout only when its session_meta.id matches the agent ID. This also covers\nrollouts Codex archived after their path was recorded."
+  },
+  {
+   "source": "transcript",
+   "commit": "e4a961c2eb",
+   "checkpoint": "01M41HTQTGV65F9V8Z315FAWVE",
+   "text": "[assistant] Found one issue:\n\n- **P2 — Inventory fallback skips stale declared paths** — `cmd/entire/cli/strategy/manual_commit_condensation.go:308`  \n  Only records with an empty `DeclaredTranscriptPath` receive inventory resolution. If Codex archives or relocates a rollout after its path was recorded, the declared path fails and the Claude-layout fallback cannot find it—even when the inventory resolver could. The checkpoint then stores no child transcript. Resolve through inventory when the declared path is unreadable as well, and add a relocation regression test.\n\nFocused materialization/condensation t\n[user] at SessionEnd (lifecycle.go:1346-1360 and :1302).\n  - Codex SubagentStop records only into the SubagentInventory, not the TaskRecord (:1557-1582).\n  - The fallback resolveTaskTranscriptPath (strategy/manual_commit_condensation.go:281-294) only knows Claude's directory layout.\n  - So condensation writes the reason-only task.json at manual_commit_condensation.go:396-399. That happened here with an ordinary commit made after the subagent had finished, not only with a commit made while a subagent is still running.\n\n  Suggested fix: run the inventory check, or copy the inventory's resolved path ont\n[assistant] Writing the fix in `manual_commit_condensation.go`.\n[assistant] lds: the task record had no path, and the fallback only knows Claude's directory layout. A commit made after the parent's Stop would normally already have the path.\n\n**Fix** (`cmd/entire/cli/strategy/manual_commit_condensation.go`): I added `resolveInventoryTaskTranscripts`, which `materializeTaskRecords` calls once per condensation.\n- It collects records that have no declared path and builds lookup entries from the session's `SubagentInventory`. That inventory is the authoritative list of child agents, so nothing gets guessed from filenames.\n- It then calls the agent's existing `agent.Extract"
+  },
+  {
+   "source": "prompt",
+   "commit": "e4a961c2eb",
+   "checkpoint": "01M41HTQTGV65F9V8Z315FAWVE",
+   "text": "can you review the changes in the local branch\n\n---\n\ncan you review the changes in the local branch again"
+  }
+ ],
+ "cost": {
+  "usd": 0.042197,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 193,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 10049
+ },
+ "trace_id": "b818635f6ffe5924add4b82aa17a7e69",
+ "error": null,
+ "trace_spans": 6
+}

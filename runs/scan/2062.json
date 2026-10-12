@@ -1,0 +1,98 @@
+{
+ "issue": 2062,
+ "title": "Claude Code parallel Task subagents misattribute TodoWrite incremental checkpoints",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence concerns os.Root refactoring, context threading, and symlink hardening, none of which discuss how FindActivePreTaskFile picks the active pre-task file (most recent mtime) for parallel sibling Tasks. Nobody chose the mtime heuristic as a deliberate answer to parallel subagents; the code was only touched incidentally.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 0,
+  "symbols_named": 4,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/state.go",
+    718,
+    759,
+    "func:FindActivePreTaskFile"
+   ]
+  ],
+  "lines": 42,
+  "lines_linked": 6,
+  "checkpoints": 3
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "1eaccf7721",
+   "checkpoint": "01M14EXEDWYJYG1VSX7TRV3RJA",
+   "text": "Give every tree Entire writes to a single os.Root anchor\n\nEntire does filesystem I/O in six trees, and until now each read and write\nassembled its own absolute path and handed it to os.ReadFile/os.WriteFile.\nContainment was therefore a property each call site had to keep honouring\nby hand, and several of them carried comments saying so outright:\nPluginDataDir \"guarantees ENTIRE_PLUGIN_DATA_DIR always points inside the\nmanaged data subtree\", investigate.RunDir noted that \"an unvalidated id\nwould be a path-traversal sink\" feeding os.RemoveAll.\n\nEach tree now has one package that owns a shared *os.Root over it, and the\nnames that reach those roots are relative to them:\n\n  .entire                    entiredir\n  git common dir             gitdir\n  the working tree           worktreedir\n  an agent's session store   agent.SessionStore\n  per-user config / cache    userdirs.ConfigRoot / CacheRoot\n  managed plugin tree        pluginRoot\n\nThe roots memoize through one registry, osroot.Shared, replacing three\nseparate copies of that map. Directory creation goes through\nosroot.MkdirAllNoSymlink, which refuses a component that already exists as\na symlink -- os.Root blocks a symlink that escapes a root but follows one\npointing elsewhere inside it, and an escaping one otherwise surfaces as an\nopaque errno far from the cause. entire doctor reports the symlinks that\nare already there.\n\nTwo anchors are worth calling out because they close a real gap rather\nthan formalising an existing one. agen"
+  },
+  {
+   "source": "transcript",
+   "commit": "1eaccf7721",
+   "checkpoint": "01M14EXEDWYJYG1VSX7TRV3RJA",
+   "text": "[assistant] aren't used at the sites their own docs name\n\n**`investigate` — the `os.RemoveAll` sinks were left behind.** `StateStore.RunDir`'s comment says \"an unvalidated id would be a path-traversal sink\" and `state.go:132` says the root is \"what keeps that a defence rather than the only defence: RunDir feeds os.RemoveAll\". But both consumers still take the joined absolute path:\n\n- `investigate/clean.go:147,154` — `os.RemoveAll(deps.RunDir(id))` and `os.Remove(deps.ManifestPath(m))`\n- `investigate/cmd.go:1036` — `os.RemoveAll(filepath.Dir(findingsDoc))`, base derived from the doc path\n- `investigate/cmd"
+  },
+  {
+   "source": "prompt",
+   "commit": "1eaccf7721",
+   "checkpoint": "01M14EXEDWYJYG1VSX7TRV3RJA",
+   "text": "Review the current changes. What additional gaps around use of os.Root? As all the base dir correctly provided? For example, using a git common dir, git dir or worktree dir, as opposed to a full path that could be manipulated (e.g. worktree_dir/cloned_symlink).\n\n---\n\nrebase this branch based on the branch paulo-sym in the origin remote (use the remote github to fetch). then commit the current cahnges. after that review the items above and mitigate them in sequential order.\n\nAt the end, the pattern must be defined in CLAUDE.md and observed across the codebase: whenever os.Root is being used, its base dir is always a trusted path, never derived from potential user and untrusted input.\n\n---\n\n<task-notification>\n<task-id>bvlk6082z</task-id>\n<tool-use-id>toolu_01EXjeRb75qwn76xoQQdohzt</tool-use"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e85d85fb6b",
+   "checkpoint": "56150bf41459",
+   "text": "Fix broken context chains"
+  },
+  {
+   "source": "transcript",
+   "commit": "e85d85fb6b",
+   "checkpoint": "56150bf41459",
+   "text": "[user] er context propagation\n\n**Files:** Multiple files including:\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/explain.go` (lines ~797, ~889, ~939, ~1035, ~1295)\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/state.go` (lines ~332, ~467, ~483)\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/transcript.go` (line ~264)\n- `/Users/pfleidi/entire/cli/cmd/entire/cli/config.go` (lines ~32, ~58, ~70, ~78, ~94)\n\n**Severity:** Medium\n\nThe primary goal of this change is to thread `context.Context` properly, but several functions still use `context.TODO()` instead of accepting a context parameter. While `context.TODO(\n[user] rect; `context.Background(),)` does not accurately represent the actual function call.\n\n**Important #2-5:** Six `context.TODO()` calls remain in private helpers where callers have `ctx` available:\n- `state.go:333,470,486` -- `prePromptStateFile`, `preTaskStateFile`, `FindActivePreTaskFile`\n- `transcript.go:265` -- `resolveTranscriptPath`\n- `setup.go:439` -- `checkDisabledGuard`\n- `explain.go:1298` -- pager invocation\n\nOnly `config.go:94` (`GetLogLevel` callback) is a legitimate `context.TODO()` where context is structurally unavailable.\n\n### Cross-Cutting: Context Threading is ~86% Complete\n\nT\n[assistant] ixes. Only affects test failure output readability.\n\n**Low: 6 remaining `context.TODO()` in private helpers**\nThese are leaf functions where callers have `ctx` but the helpers don't accept it yet:\n- `state.go` — `prePromptStateFile`, `preTaskStateFile`, `FindActivePreTaskFile`\n- `transcript.go` — `resolveTranscriptPath`\n- `setup.go` — `checkDisabledGuard` (no ctx param available)\n- `explain.go` — pager invocation\n\nThese are \"last mile\" gaps — the public API surface is fully plumbed. Only `GetLogLevel` in `config.go` is a structurally legitimate `context.TODO()`.\n\n---\n\n### Bottom line\n\nThe crit"
+  },
+  {
+   "source": "prompt",
+   "commit": "e85d85fb6b",
+   "checkpoint": "56150bf41459",
+   "text": "can you let a few agents review the current branch? Focus on things like correctness, performance, security, readability and such. Please do it in a way that requires as little interaction on my side as possible.\n\n---\n\n<task-notification>\n<task-id>a8b2b4ce5e9858507</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review CLI commands/lifecycle\" completed</summary>\n<result>I cannot create the review file in the standard location since bash is restricted. I will provide the full review directly in my response instead.\n\nNow I have a thorough understanding of the changes. Let me compile the review.\n\n---\n\n# Review of `improve-context-management` Branch -- CLI Commands and Lifecycle Files\n\n**Branch:** `improve-context-management`\n**Base:** `main` (00c8469a)"
+  },
+  {
+   "source": "commit_message",
+   "commit": "83677f7510",
+   "checkpoint": "01M1A5W010JWB187BK46ETN973",
+   "text": "Pin every path component instead of checking it and looking again\n\nNoSymlinkedParent walked a name's parents with Lstat and then handed the\nWHOLE name back to the original root, so the thing that was checked and\nthe thing that was opened were resolved twice, independently. Everything\nin this package now opens each component in turn, keeps the descriptor,\nand operates relative to it: OpenDirNoSymlinks descends one component at\na time, OpenParentNoSymlinks pins the parent and returns the leaf, and\nReadFileNoFollow, OpenFileNoFollow, LstatNoSymlinks, RemoveNoSymlinks,\nReadDirNoSymlinks and WalkDirNoSymlinks are all expressed on top of that\npair. NoSymlinkedParent survives as a predicate and now says in its own\ndoc that a caller acting on the result must re-open through\nOpenParentNoSymlinks rather than trust it.\n\nMkdirAllNoSymlink follows the same rule for the directories it creates,\nso a component that appears between the check and the Mkdir is opened\nand identity-checked like any other rather than being MkdirAll'd blind.\nOpenChild stops reporting a regular file as ErrSymlinkedPath and returns\nErrWalkRootNotDirectory: replacing a link and replacing a file are\ndifferent remedies.\n\nThe atomic writers no longer fsync. The rename is what gives every\ncaller here the property it actually needs, that a reader never sees a\ntorn file; fsync buys durability across a power loss, and nothing\nwritten through these functions is worth that — settings, session state,\ncaches and manifests are al"
+  },
+  {
+   "source": "transcript",
+   "commit": "83677f7510",
+   "checkpoint": "01M1A5W010JWB187BK46ETN973",
+   "text": "[assistant] ing wrong destroys data, so it should use `entiredir`'s anchor policy rather than a looser one.\n\n### 5. Low — `openSessionStateRootForRead` opens a child root with no symlink check\n\n`strategy/session_state.go:114` uses `commonRoot.OpenRoot(...)` directly. The write path at line 96 is protected because `MkdirAllNoSymlink` runs first; the read path is not, so a symlinked `.git/entire-sessions` pointing elsewhere *inside* `.git` is followed silently. `osroot.SharedChild` exists for exactly this (Lstat + post-open `SameFile`), and these two are the only child-root opens in the tree that bypass it \n[assistant] SharedChild`, same `Lstat`/`SameFile` pair) and used it for both session-state opens. `SharedChild`'s inline post-open check now shares the same `validateOpenedRoot` helper. Removed `strategy/session_state.go` from `allowedRootBases` — the guard's staleness check caught that for me.\n\n**6 — duplicated no-follow read.** `settings.readConfinedIn` is now four lines over `osroot.ReadFileNoFollow` with an `ErrSymlinkedPath` → `paths.SymlinkedEntryError` translation; the local `validateOpenedFile` is gone. Its race test moved to `osroot` rather than being dropped.\n\n**7 — guard comment.** Documented w\n[assistant] Two lint failures. Let me quantify the one performance concern I have before writing up — `session/state.go Save` moved to the fsyncing atomic writer, and that's on every hook:"
+  },
+  {
+   "source": "prompt",
+   "commit": "83677f7510",
+   "checkpoint": "01M1A5W010JWB187BK46ETN973",
+   "text": "fix rebase conflicts\n\n---\n\nfix the next one\n\n---\n\nReview changes in the worktree.\n\n---\n\n1. Fix linter issues\n2. Drop the fsync\n3. What options do we have here? Note tha rewind is being deprecated/removed (refs/remotes/origin/soph/remove-rewind-machinery)\n4. That's OK, if the user wants to link .claude/settings.json that would still work by removing from the index (and .gitignoring it)\n\n---\n\n3. A+C\n4. OK add a comment to that effect"
+  }
+ ],
+ "cost": {
+  "usd": 0.021833,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 153,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 5058
+ },
+ "trace_id": "8ec91abfc98b77460ee8943dd9787aef",
+ "error": null,
+ "trace_spans": 6
+}

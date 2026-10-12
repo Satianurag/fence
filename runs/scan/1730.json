@@ -1,0 +1,36 @@
+{
+ "issue": 1730,
+ "title": "Shadow/ephemeral checkpoint reachability isn't merge-aware (needs session-origin metadata)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "no_record",
+  "confidence": 1.0,
+  "rationale": "No code was located for this issue, by name or by search, so there are no lines to trace to a checkpoint.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 1,
+  "symbols_named": 4,
+  "spans": 0,
+  "span_list": [],
+  "lines": 0,
+  "lines_linked": 0,
+  "checkpoints": 0
+ },
+ "evidence": [],
+ "cost": {
+  "usd": 0,
+  "llm_calls": 0,
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 0
+ },
+ "trace_id": "e9d951ed1a631b9aefb2fb294b9ef7ac",
+ "error": null,
+ "trace_spans": 5
+}

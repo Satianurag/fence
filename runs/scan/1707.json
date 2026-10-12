@@ -1,0 +1,134 @@
+{
+ "issue": 1707,
+ "title": "`entire login` opens a Linux browser instead of the Windows default browser under WSL",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers openBrowser's history: command-injection hardening, a Windows `&` truncation fix, and a login flow refactor. None of it mentions WSL or choosing `xdg-open` over the Windows browser. The Linux `xdg-open` call was just the default path, never a decision about WSL behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 1,
+  "symbols_named": 5,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/login.go",
+    1038,
+    1051,
+    "func:openBrowser"
+   ]
+  ],
+  "lines": 14,
+  "lines_linked": 10,
+  "checkpoints": 5
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "6c639e437e",
+   "checkpoint": "66d5679fe1d2",
+   "text": "fix: harden CLI device auth flow"
+  },
+  {
+   "source": "transcript",
+   "commit": "6c639e437e",
+   "checkpoint": "66d5679fe1d2",
+   "text": "[assistant] ## Security Review: Device Auth Login (`feat/device-auth-login`)\n\n### Critical\n\n**1. Command injection via `openBrowser`** — `login.go:79-97`\n\nThe `verification_uri_complete` returned by the server is passed directly to OS shell commands. On Windows, `cmd /c start \"\" <url>` is a shell invocation where metacharacters in the URL can execute arbitrary commands. On all platforms, non-HTTP schemes (`file://`, `smb://`, custom URI handlers) could trigger unintended local actions.\n\n**Fix:** Validate the URL scheme is `https://` (or `http://` only when the base URL is localhost) before passing to the \n[assistant] After re-reading the code, here's my assessment of each finding's legitimacy:\n\n| # | Finding | Verdict | Reasoning |\n|---|---------|---------|-----------|\n| 1 | Command injection in `openBrowser` | **Partially valid** — Windows only | On darwin/linux, `exec.Command` passes args directly to the syscall (no shell). On Windows, `cmd /c start \"\" <url>` IS a shell invocation where `&` in URLs (common in query strings) acts as a command separator. URL scheme validation is also good defense-in-depth on all platforms. |\n| 2 | No scheme validation on `ENTIRE_API_BASE_URL` | **Not valid** | Env vars are\n[assistant] Now fix `openBrowser` to validate URL scheme:"
+  },
+  {
+   "source": "prompt",
+   "commit": "6c639e437e",
+   "checkpoint": "66d5679fe1d2",
+   "text": "Make a security review for the current branch"
+  },
+  {
+   "source": "commit_message",
+   "commit": "85e88ba47c",
+   "checkpoint": "01KZXRH0HHT2AAAYC5H1724SYA",
+   "text": "ne whose result channel\nonly Wait drains — and this path deliberately never calls Wait. Each\nbrowser open therefore leaked one goroutine, retaining the Cmd (argv, env,\nURL), for the process lifetime. Measured: 20 opens leaked 20 goroutines,\nsurviving both cancel and GC; with exec.Command it is zero. The context was\nalready inert here because Process.Release detaches the child, so\nCmd.Cancel's Process.Kill fails anyway — dropping it removes the leak\nwithout losing cancellation that never worked. openBrowserPlatform no\nlonger takes a context, and openBrowser blanks its own (kept for\nbrowserOpenFunc).\n\nConsolidate the rationale. The `&`/EscapeArg/`%VAR%` explanation was\nwritten out across four files; it now lives once, in the\nopenBrowserPlatform doc comment that a future reader edits if tempted by\n`cmd /c start`. Share one authorize-URL fixture between the two test files\ninstead of two hand-written ones, and fold the two cross-platform tests\ninto one table.\n\nName the boundary between this repo's two Windows-command philosophies,\nwhich previously discussed the same hazard from opposite sides without\nreferencing each other: escape when a third party owns the exec (agents'\nhooks.json, via agent.escapeWindowsCMD), bypass the shell when Entire\nlaunches something itself. Reciprocal doc pointers, plus a CLAUDE.md\nsection under Code Patterns recording the invariant and the EscapeArg fact\nthat made the bug possible.\n\nAlso add the //go:build windows tag to browser_open_windows.go, matchin"
+  },
+  {
+   "source": "transcript",
+   "commit": "85e88ba47c",
+   "checkpoint": "01KZXRH0HHT2AAAYC5H1724SYA",
+   "text": "[assistant] ## Root cause\n\n`cmd /c start` was handing the OAuth URL to **cmd.exe, which treats an unquoted `&` as a command separator**. The URL was truncated at the first `&`.\n\n`cmd/entire/cli/login.go:536` (as shipped in v0.10.0 — I confirmed via `git show v0.10.0`):\n\n```go\ncase \"windows\":\n    command = \"cmd\"\n    args = []string{\"/c\", \"start\", \"\", browserURL}\n```\n\nGo's escaping doesn't save you here: `syscall.EscapeArg` only quotes an argument containing a space, tab, quote, or backslash. A URL has none of those, so it reaches cmd.exe bare.\n\nThe authorize URL is built with `url.Values.Encode()`, which s\n[user] 4`\n\nThe test calls no code from this repo. Its stated purpose — \"so nobody reintroduces `cmd /c start \"\" &lt;url&gt;` as the launcher\" — is not something it can detect: it passes identically whether `openBrowserPlatform` uses ShellExecute or `cmd`. That regression protection comes entirely from the sibling test at line 27, which fails (`got` stays `\"\"`) if the seam stops being called.\n\nWhat it *can* do is fail. It spawns a Windows subprocess and asserts an exact stdout string produced by a third-party shell, on hosted runners, with `echo` standing in for `start`. Any failure is by construction\n[user] ached` hardcodes `os.Executable()`, so it is **not** directly callable for `open`/`xdg-open`; reuse would mean generalizing it to take a program name. Also, this block is moved verbatim from the old `login.go`, not newly written. Flagging it so the choice is deliberate: either generalize `execx` and route the browser launch through it, or leave it and accept a second spawn site outside `execx`.\n\n### 3. Triplicated rationale prose (low)\n\nThe cmd.exe `&amp;`/`%VAR%` + `syscall.EscapeArg` explanation is written out three times: `login.go:509-519`, `browser_open_windows.go:17-31`, `browser_open_wi"
+  },
+  {
+   "source": "prompt",
+   "commit": "85e88ba47c",
+   "checkpoint": "01KZXRH0HHT2AAAYC5H1724SYA",
+   "text": "/simplify\n\n---\n\n<task-notification>\n<task-id>acd941a5ccb19bc1d</task-id>\n<tool-use-id>toolu_011XBPJkCFkgsesDGFHDTgFa</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph--herdr-worktrees-cli-soph-investigate-login-windows/38124fdf-a42f-46a5-95a9-cf7f9e0a4dcf/tasks/acd941a5ccb19bc1d.output</output-file>\n<status>completed</status>\n<summary>Agent \"Simplification review\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>Simplification review of `976fd4261` (5 files, +192/-29). The fix itself is the right shape — the per-platform split is forced by the `golang.org/x/sys/windows` import and can't be av"
+  },
+  {
+   "source": "commit_message",
+   "commit": "659f09f79e",
+   "checkpoint": "3ae392c3a1eb",
+   "text": "login: show auth host instead of the long authorize URL\n\nThe browser flow now prints \"Logging in to:  <auth host>\" rather than\nthe full authorize URL (the PKCE challenge + loopback redirect made it\nlong and unreadable). The full URL is shown only as a fallback when the\nbrowser can't be opened, which is also what a headless host hits.\n\nopenBrowser reports failure under test (no usable browser on a CI host,\nand we mustn't spawn a real one), so the integration test recovers the\nephemeral loopback callback URL from that fallback line on stdout —\nreplacing the file-based seam from the previous iteration."
+  },
+  {
+   "source": "transcript",
+   "commit": "659f09f79e",
+   "checkpoint": "3ae392c3a1eb",
+   "text": "[assistant] ...]`\n- `New(c *Client) (*Client, error)` validating required fields.\n\n**Public API** — recommend a decomposed shape so the CLI keeps control of browser-open and user messaging (the CLI already owns `openBrowser`/TTY logic):\n\n```go\n// Step 1: generate PKCE+state, bind loopback listener, build authorize URL.\nfunc (c *Client) StartCallbackServer(ctx context.Context) (*AuthSession, error)\n\ntype AuthSession struct {\n    AuthorizationURL string        // open this in the browser\n    RedirectURI      string        // http://127.0.0.1:<port>/callback\n    // unexported: verifier, state, listener, resu\n[assistant] reio/cli — shim + flag:**\n- `go.mod` bump to the new auth-go tag.\n- Add `AuthorizePath` to the provider table.\n- Shim methods on `auth.Client` (parallel to the deviceflow shim).\n- `--device` flag in `login.go`; default path calls the new flow, reusing the **existing** `validateReceivedToken`/`SaveToken`/`RecordLoginContext` tail.\n\n**Things I over-scoped — drop or defer:** headless auto-fallback, RFC 9207 cross-region `iss`, extensive docs. Nice-to-haves, not load-bearing for a first cut.\n\n**Two things that stay non-negotiable:**\n1. **Phase 0 backend check** — confirm the authorize endpoint pat\n[assistant] w-only was deliberate and stays right for headless/CI, but loopback is nicer on an interactive machine with a browser, and mature CLIs (gh/gcloud/aws sso) ship both with device-flow fallback.\n\n## Next\nThe CLI PR (`entireio/cli`) is the follow-up: bump the `auth-go` dep to this branch's tag once merged, add `AuthorizePath` to the provider table, shim `authcode` into `auth.Client`, and add the `--device` flag + default-to-browser branch in `login.go`. Want me to draft that against the worktree now (it'll need the same Phase-0 confirm of the authorize endpoint path), or hold until auth-go merges?\n[assistant] Now `login.go` — add the `--device` flag, the browser-auth interface, the `runBrowserLogin` flow, and refactor the shared persist tail."
+  },
+  {
+   "source": "prompt",
+   "commit": "659f09f79e",
+   "checkpoint": "3ae392c3a1eb",
+   "text": "currently, 'entire login' uses device flow, which is a bit weird because people need to verify a string of characters.  There's the other flow too, which also opens a browser pings a loopback listener when successfully authenticated, which is smoother.  What would it take to use that as default, and put the current flow behind a `--device` flag?  detailed plan please.  the backend already supports it.\n\n---\n\nwait, can we add this to auth-go library instead?  seems like a gap.  i'll clone it.  it's in /Users/paul/src/entireio/auth-go, and there is definitely prior art we can crib from /Users/paul/src/entirehq/entiredb/cmd/entire-core's auth login surface.  plan first, no implementation.\n\n---\n\nwait are you saying entireio/cli today does not use auth-go?\n\n---\n\nok. the plan looks extremely invo"
+  },
+  {
+   "source": "commit_message",
+   "commit": "1d0695dc60",
+   "checkpoint": "5036f0366fb3",
+   "text": "cli: add `entire login --server`, retire ENTIRE_AUTH_BASE_URL (COR-393)\n\n`entire login --server <url>` (default https://us.auth.entire.io)\nreplaces the env var as the way to target a non-default login server.\nThe value is validated as a bare http(s) origin — userinfo, path,\nquery, and fragment are rejected rather than silently dropped, since\nit becomes the OAuth issuer, exchange target, and keyring key.\n\nA set ENTIRE_AUTH_BASE_URL (even empty) now fails every built-in\ncommand with a hint naming the flag: a removed knob must never be\nsilently ignored. Internal api.AuthBaseURL() reads survive until the\nfollow-up demolition PR, but can only ever observe the default now.\n\nauth.NewClient takes the server explicitly instead of reading the env\nvar; login's TLS check narrows to the server actually being dialled."
+  },
+  {
+   "source": "transcript",
+   "commit": "1d0695dc60",
+   "checkpoint": "5036f0366fb3",
+   "text": "[assistant] Now `login.go` — the flag, validation, and server-specific TLS check:"
+  },
+  {
+   "source": "prompt",
+   "commit": "1d0695dc60",
+   "checkpoint": "5036f0366fb3",
+   "text": "/simplify\n\n---\n\n/codex:adversarial-review\n\n---\n\nsounds good.  fix them both in separate commits.\n\n---\n\n/codex:adversarial-review\n\n---\n\nI thikn this is all fine because we're about to sunset the legacy tokens.\n\n---\n\nI think we already have https://linear.app/entirehq/issue/COR-393/sunset-entire-auth-base-url-discovery-only-auth-resolution-entire, is that the right place to save these pointers?\n\n---\n\nyep post the comment.\n\n---\n\nalright, don't create a PR yet, but let's draft a description for a PR and we'll panelbeat it.\n\n---\n\nthe two bullets about \"dismissed issues\" reads a bit AI-sloppy.  Let's be more concrete about what machinery we are still leaving in place, to be removed in a followup PR.\n\n---\n\nok open the PR.\n\n---\n\nif we wait very long for mirror creation on the server side, say, 1h "
+  },
+  {
+   "source": "commit_message",
+   "commit": "29c0b9e2e6",
+   "checkpoint": "01KZSKM61YQKRR5727HMXQWTK2",
+   "text": "feat(login): add explicit URL actions"
+  },
+  {
+   "source": "transcript",
+   "commit": "29c0b9e2e6",
+   "checkpoint": "01KZSKM61YQKRR5727HMXQWTK2",
+   "text": "[assistant] hecking whether there's a Windows-specific `interactive.go` file — there isn't, just `rawmode_other.go`, so the `/dev/tty` open failure on Windows is consistent. The `readLoginURLAction` function in `login.go` uses `/dev/tty` and `term.MakeRaw`, which compiles fine on Windows since the term package supports it.\n\nThe real question is whether this change actually builds and works. I'm thinking through potential issues with raw mode and output interleaving — the login prompt gets printed before entering raw mode, and the newline after the user's keypress happens after raw mode exits, which should\n[assistant] after the terminal is restored, which is good since browsers might write to the terminal. Now I'm looking at the interaction between `interactive.UnderTest()` checks in both `readLoginURLAction` and `openBrowser` to see if there's a defensible finding there.\n\nOn the clipboard side, `atotto/clipboard.WriteAll` on Linux spawns xclip or xsel to handle the selection, and while there's a theoretical concern about headless systems, xsel fails quickly without a display so it shouldn't hang. The URL being copied doesn't include any sensitive auth state, which is fine. I'm noticing a potential maintain\n[assistant] e raw mode behavior more carefully. When we enter raw mode, terminal output post-processing gets disabled, but that's only for our process — other processes sharing the terminal aren't affected. The `openBrowser` call happens after we restore the terminal, so that's fine. There's also a potential edge case where the read goroutine might still be blocked when we restore and close the TTY in the cancel path, but that's acceptable. The real concern is if `term.Restore` fails after a successful read in `readLoginURLActionFromTTY` — that would abort the login flow entirely.\n\nNow I'm checking whethe"
+  },
+  {
+   "source": "prompt",
+   "commit": "29c0b9e2e6",
+   "checkpoint": "01KZSKM61YQKRR5727HMXQWTK2",
+   "text": "<system_instruction>\nYou are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.\nYour work should take place in the /Users/pd/conductor/workspaces/cli/cheyenne directory (unless otherwise directed), which has been set up for you to work in.\nEach workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.\nThe target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).\n\nDo not rename the current branch unless the user explicitly tells you to do so.\n\nBy default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages w"
+  }
+ ],
+ "cost": {
+  "usd": 0.031379,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 138,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 7482
+ },
+ "trace_id": "c2a045e19ab8eedccae2a6d491811a1d",
+ "error": null,
+ "trace_spans": 6
+}

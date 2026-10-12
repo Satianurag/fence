@@ -1,0 +1,104 @@
+{
+ "issue": 2115,
+ "title": "Hook timeouts: a flat 30s is wrong in both directions, and the cap is doing telemetry's job",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "no_record",
+  "confidence": 0.8,
+  "rationale": "The issue is about the flat 30s hook timeout (defaultHookTimeoutSec) introduced in a Codex SessionEnd commit. The evidence covers local_dev removal, legacy hook prefix handling, and Factory AI Droid agent scaffolding, and none of it discusses hook timeouts. The blamed dropStaleEntireHooks code is only tangentially related, so there is no usable record for the timeout decision.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "HEAD",
+  "files_named": 2,
+  "symbols_named": 9,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/claudecode/hooks.go",
+    731,
+    748,
+    "func:dropStaleEntireHooks"
+   ],
+   [
+    "cmd/entire/cli/agent/codex/hooks.go",
+    709,
+    729,
+    "func:dropStaleEntireHooks"
+   ],
+   [
+    "cmd/entire/cli/agent/factoryaidroid/hooks.go",
+    511,
+    528,
+    "func:dropStaleEntireHooks"
+   ]
+  ],
+  "lines": 57,
+  "lines_linked": 43,
+  "checkpoints": 3
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "a9a676e795",
+   "checkpoint": "01M00A6KK7GC43YE6DT3WX5FWN",
+   "text": "refactor(hooks)!: remove local_dev mode\n\nLocal-dev mode pointed installed hooks at `scripts/entire-dev`, a launcher\ninside the working tree that compiled and ran the checked-out source. It was\nread from the *committed* `.entire/settings.json` (settings.go merged\n`local_dev` from the project scope, and strategy/common.go regenerated the git\nhook from it), so any repository could commit `\"local_dev\": true` and have\n`entire enable` install hooks that execute that repository's own code. A branch\ncheckout could then swap what ran. This repo shipped exactly that: `local_dev:\ntrue` was tracked, and all six committed agent configs invoked the launcher.\n\nHooks now always name the `entire` binary. Removed the `--local-dev` flags\n(including the non-hidden one on `entire agent add`), `EnableOptions.LocalDev`,\nthe `localDev` parameter from `Agent.InstallHooks` across all nine agents and\nthe external-agent protocol, the claude-code local-dev SessionEnd timeout, and\nthe launcher script.\n\n`EntireSettings.LocalDev` stays as a documented no-op: the loaders use\nDisallowUnknownFields, so deleting the field would make every existing settings\nfile containing `local_dev` a hard parse error. It is not merged from overrides\nand nothing reads it, matching the `Strategy` precedent.\n\nRemoving the feature is not enough to disarm existing installs, so this also\nfixes how hooks written by older versions get replaced:\n\n- `isGitHookInstalledInHooksDir` only looked for the Entire marker, which a\n  legacy hook"
+  },
+  {
+   "source": "transcript",
+   "commit": "a9a676e795",
+   "checkpoint": "01M00A6KK7GC43YE6DT3WX5FWN",
+   "text": "[user] oductionSilentHookCommand` / `WrapProductionJSONWarningHookCommand` are **unchanged** by this diff. Every agent's old code already called them inside an `if !localDev` branch (verified in `claudecode/hooks.go` old lines 510-516, `cursor/hooks.go` old `if !localDev {…}`, `codex/hooks.go`, `factoryaidroid/hooks.go`, `copilotcli/hooks.go`). Production users' hook strings are the same before and after, so the extra `sh` fork + `command -v` probe is pre-existing, not introduced here.\n- What the diff removes is the *other* branch. Measured in this repo, warm cache, per hook firing:\n  - old local-dev\n[user] e `strings.Count(...) != 1` assertion, and all three explanatory comments — is character-for-character the same.\n\n**Where it belongs:** `cmd/entire/cli/agent/testutil` (`cmd/entire/cli/agent/testutil/hooks.go:1`), which is exactly this: \"shared test helpers for the agent package and its sub-packages.\" It is already imported by `claudecode/hooks_test.go:14`, `geminicli/hooks_test.go:13`, `factoryaidroid/hooks_test.go:13`, `pi/hooks_test.go:11`, `opencode/hooks_test.go:11` — and the diff itself adds a second file to it (`dogfood.go`). Critically, `cmd/entire/cli/agent/architecture_test.go:45-58`\n[user] s, and stale git hooks now break `git push`\n`EnsureSetup` (runs on every turn-start, `lifecycle.go:573`) only reinstalls when `!IsGitHookInstalled(ctx)`, and `isGitHookInstalledInHooksDir` (`strategy/hooks.go:156-168`) checks **only for `entireHookMarker`** — a legacy `./scripts/entire-dev hooks git …` hook has the marker, so it counts as installed forever. Nothing else repairs it: `entire doctor` has no git-hook check at all (`doctor.go` only does agent `CheckHookConfig` + codex trust), and `configure` reinstalls only with `--force`/`--absolute-git-hook-path`.\n\nThis is not cosmetic. `gitHookC"
+  },
+  {
+   "source": "commit_message",
+   "commit": "3c37cf55fa",
+   "checkpoint": "7fc7ad5b176b",
+   "text": "Add Factory AI Droid agent integration\n\nImplement the agent.Agent interface for Factory AI Droid, including\nsession lifecycle management, hook handling, and JSONL transcript\nparsing. Register the new agent in the agent registry and wire it\ninto config detection, hooks, and summarization."
+  },
+  {
+   "source": "transcript",
+   "commit": "3c37cf55fa",
+   "checkpoint": "7fc7ad5b176b",
+   "text": "[assistant] Approach 1: Full Clone of Claude Code Pattern (Recommended)\n\nCreate `cmd/entire/cli/agent/factoryai/` mirroring the Claude Code structure exactly:\n- Same file layout (`factoryai.go`, `lifecycle.go`, `hooks.go`, `types.go`, `transcript.go` + tests)\n- Reuse the existing `transcript` package for JSONL parsing (since Factory Droid uses the same format)\n- Implement all optional interfaces: `HookSupport`, `HookHandler`, `TranscriptAnalyzer`, `TranscriptPreparer`, `TokenCalculator`, `SubagentAwareExtractor`\n- Hook config in `.factory/settings.json` (project-level)\n- `FACTORY_PROJECT_DIR` env var for \n[assistant] re Agent implementation + init() registration\n├── lifecycle.go          # ParseHookEvent + compile-time assertions\n├── types.go              # Hook input structs, transcript types, tool constants\n├── hooks.go              # HookSupport + HookHandler implementation\n├── transcript.go         # TranscriptAnalyzer, TokenCalculator, SubagentAwareExtractor\n├── lifecycle_test.go     # Tests for ParseHookEvent (all 9 hook types)\n├── hooks_test.go         # Tests for hook install/uninstall/idempotency\n└── transcript_test.go    # Tests for transcript analysis\n```\n\n**Identity:**\n- `Name()` → `\"factory-ai\n[assistant] lifecycle.go references `HookName*` constants and `GetHookNames()` which will be in hooks.go. It also references transcript functions from transcript.go. I need to create both before the package compiles. Let me create hooks.go and transcript.go now to unblock compilation."
+  },
+  {
+   "source": "prompt",
+   "commit": "3c37cf55fa",
+   "checkpoint": "7fc7ad5b176b",
+   "text": "Base directory for this skill: /Users/alisha/.claude/plugins/cache/claude-plugins-official/superpowers/4.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n## Overview\n\nHelp turn ideas into fully formed designs and specs through natural collaborative dialogue.\n\nStart by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.\n\n<HARD-GATE>\nDo NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.\n</HARD-GATE>\n\n## Anti-Pattern: \"This Is Too Simple To Need A Design\"\n\nEvery project"
+  },
+  {
+   "source": "commit_message",
+   "commit": "341145f9a6",
+   "checkpoint": "01M00CG2NVD12M4VQ0NZ2D9WJ9",
+   "text": "refactor(hooks): make legacy hook prefixes unusable for writing\n\nThe detection list carried a comment saying the legacy shapes were lookup-only,\nbut nothing enforced it: `LegacyLocalDevHookScript` was exported, so any agent\ncould splice it into a generated hook command and only a reviewer would catch it.\n\nThe recognized set now lives unexported inside the agent package, and both\n`IsManagedHookCommand` and `DropStaleManagedHooks` drop their `prefixes`\nparameter. Production code cannot name a legacy shape, so it cannot install one\n— attempting either route is a compile error rather than a convention violation.\nConstruction stays available to tests through agent/testutil, which is test-only\nby definition.\n\nThis also removes the six per-agent `entireHookPrefixes` literals. Five were\nbyte-identical and claudecode differed only in resolving the repo root through\n${CLAUDE_PROJECT_DIR} rather than git; the shared set now covers all four shapes\nEntire has ever written, matched for every agent. A hook naming any of them is\nours regardless of whose config it appears in, and a newly added agent inherits\nlegacy detection instead of having to remember to copy the list — omitting those\nentries is exactly what leaves an old hook installed forever.\n\nEvery agent's current prefix was already the same bare \"entire \", which is why\nthe parameter had no remaining purpose."
+  },
+  {
+   "source": "transcript",
+   "commit": "341145f9a6",
+   "checkpoint": "01M00CG2NVD12M4VQ0NZ2D9WJ9",
+   "text": "[user] oductionSilentHookCommand` / `WrapProductionJSONWarningHookCommand` are **unchanged** by this diff. Every agent's old code already called them inside an `if !localDev` branch (verified in `claudecode/hooks.go` old lines 510-516, `cursor/hooks.go` old `if !localDev {…}`, `codex/hooks.go`, `factoryaidroid/hooks.go`, `copilotcli/hooks.go`). Production users' hook strings are the same before and after, so the extra `sh` fork + `command -v` probe is pre-existing, not introduced here.\n- What the diff removes is the *other* branch. Measured in this repo, warm cache, per hook firing:\n  - old local-dev\n[user] e `strings.Count(...) != 1` assertion, and all three explanatory comments — is character-for-character the same.\n\n**Where it belongs:** `cmd/entire/cli/agent/testutil` (`cmd/entire/cli/agent/testutil/hooks.go:1`), which is exactly this: \"shared test helpers for the agent package and its sub-packages.\" It is already imported by `claudecode/hooks_test.go:14`, `geminicli/hooks_test.go:13`, `factoryaidroid/hooks_test.go:13`, `pi/hooks_test.go:11`, `opencode/hooks_test.go:11` — and the diff itself adds a second file to it (`dogfood.go`). Critically, `cmd/entire/cli/agent/architecture_test.go:45-58`\n[user] s, and stale git hooks now break `git push`\n`EnsureSetup` (runs on every turn-start, `lifecycle.go:573`) only reinstalls when `!IsGitHookInstalled(ctx)`, and `isGitHookInstalledInHooksDir` (`strategy/hooks.go:156-168`) checks **only for `entireHookMarker`** — a legacy `./scripts/entire-dev hooks git …` hook has the marker, so it counts as installed forever. Nothing else repairs it: `entire doctor` has no git-hook check at all (`doctor.go` only does agent `CheckHookConfig` + codex trust), and `configure` reinstalls only with `--force`/`--absolute-git-hook-path`.\n\nThis is not cosmetic. `gitHookC"
+  },
+  {
+   "source": "prompt",
+   "commit": "341145f9a6",
+   "checkpoint": "01M00CG2NVD12M4VQ0NZ2D9WJ9",
+   "text": "and just to confirm again, trail 1045 is now basically included in this work and should be closed"
+  }
+ ],
+ "cost": {
+  "usd": 0.031171,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 178,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 7330
+ },
+ "trace_id": "62ca8f5df04fadff7e3daf09221bac62",
+ "error": null,
+ "trace_spans": 6
+}
