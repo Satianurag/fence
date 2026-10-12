@@ -1,0 +1,25 @@
+diff --git a/cmd/entire/cli/trailers/trailers.go b/cmd/entire/cli/trailers/trailers.go
+index cd6b2578a..95fd7cf69 100644
+--- a/cmd/entire/cli/trailers/trailers.go
++++ b/cmd/entire/cli/trailers/trailers.go
+@@ -247,8 +247,9 @@ func appendTrailerLine(message, trailerLine string) string {
+ 
+ 	hasTrailerBlock := false
+ 	if i >= 0 {
+-		last := strings.TrimSpace(lines[i])
+-		if last != "" && IsTrailerLine(last) {
++		// Match git's grammar: an indented line is never a trailer (entireio/cli#2256).
++		last := lines[i]
++		if strings.TrimSpace(last) != "" && IsTrailerLine(last) {
+ 			for i > 0 {
+ 				i--
+ 				above := strings.TrimSpace(lines[i])
+@@ -259,7 +260,7 @@ func appendTrailerLine(message, trailerLine string) string {
+ 					hasTrailerBlock = true
+ 					break
+ 				}
+-				if !IsTrailerLine(above) {
++				if !IsTrailerLine(lines[i]) {
+ 					break
+ 				}
+ 			}

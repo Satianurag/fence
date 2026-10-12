@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fence</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="frame">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1">
+        <rect x="0.5" y="0.5" width="27" height="27"/>
+        <path d="M7 22 V8 M14 22 V6 M21 22 V8"/>
+        <path d="M4 12 H24 M4 18 H24" stroke-dasharray="1 2"/>
+      </svg>
+      <div><b>FENCE</b><small id="brand-sub">ENTIREIO/CLI · NEATHACK 2026</small></div>
+    </div>
+    <div class="ticker" id="ticker"><span></span><span></span><span></span></div>
+    <div class="clock">
+      <div class="legend" id="legend"></div>
+      <div><small id="date"></small><b id="clock"></b></div>
+    </div>
+  </header>
+
+  <aside class="col left">
+    <section class="panel telemetry">
+      <header><span class="tag">A</span><span id="replay-title">RUN REPLAY</span><small id="replay-note"></small></header>
+      <div class="body">
+        <div class="radar"><canvas id="ring"></canvas></div>
+        <div class="kpis">
+          <div><small>STEP</small><b id="kpi-step">0/0</b></div>
+          <div><small>COMMIT</small><b id="kpi-commit">—</b></div>
+          <div><small>LINES TRACED</small><b id="kpi-lines">0</b></div>
+          <div><small>NEXT</small><b class="small" id="kpi-next">—</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel checkpoints" style="flex: 1.6">
+      <header><span class="tag">B</span>EVIDENCE CHAIN<small id="chain-note"></small></header>
+      <div class="body">
+        <table>
+          <thead><tr><th>ID</th><th>COMMIT</th><th class="num">DATE</th><th class="num">LN</th><th class="num">CK</th></tr></thead>
+          <tbody id="checkpoints"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <header><span class="tag">C</span>ISSUES · MOST EVIDENCE<small>LOCATED · LINKED</small></header>
+      <div class="body"><canvas id="formats"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <header><span class="tag">D</span>ISSUES PER MONTH<small id="hist-note"></small></header>
+      <div class="body"><canvas id="finish"></canvas></div>
+    </section>
+  </aside>
+
+  <main class="center">
+    <section class="panel viewport">
+      <header><span class="tag">01</span><span id="view-title">EVIDENCE TRAIL</span><small id="view-note"></small></header>
+      <div class="stages" id="stages"></div>
+      <div class="scene">
+        <canvas id="scene"></canvas>
+        <canvas id="scene-hud"></canvas>
+        <div class="card" id="card">
+          <div class="card-head"><b id="c-id"></b><span id="c-commit"></span><em id="c-date"></em></div>
+          <div class="card-subj" id="c-subj"></div>
+          <div class="card-meta"><span id="c-file"></span><span id="c-lines"></span></div>
+          <div class="card-ck" id="c-ck"></div>
+          <div class="card-prompt"><small>PROMPT ON RECORD</small><p id="c-prompt"></p></div>
+        </div>
+        <div class="hint">DRAG · ORBIT &nbsp;&nbsp; WHEEL · ZOOM &nbsp;&nbsp; DBL-CLICK · RESET</div>
+      </div>
+    </section>
+    <div class="row">
+      <section class="panel profile-panel">
+        <header><span class="tag">E</span>EVIDENCE PROFILE<small id="profile-note"></small></header>
+        <div class="body">
+          <canvas id="profile"></canvas>
+          <div class="big"><small>LINES TRACED</small><span id="profile-big">0</span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <header><span class="tag">F</span>ADDED / DELETED PER MONTH<small>GIT NUMSTAT</small></header>
+        <div class="body"><canvas id="gradient"></canvas></div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="col right">
+    <section class="panel globe-panel">
+      <header><span class="tag">G</span>CHECKPOINTS · AUTHORING AGENT<small id="globe-note"></small></header>
+      <div class="body">
+        <canvas id="globe"></canvas>
+        <canvas id="globe-hud"></canvas>
+        <div class="readout" id="globe-readout"></div>
+        <div class="readout right">HUB · FENCE</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <header><span class="tag">H</span>CUMULATIVE COMMITS / CHECKPOINTS<small>N · MONTH</small></header>
+      <div class="body"><canvas id="cumulative"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <header><span class="tag">I</span><span id="results-title">ISSUE STATES</span><small>BY EVIDENCE</small></header>
+      <div class="body"><div class="results" id="results"></div></div>
+    </section>
+
+    <section class="panel log-panel">
+      <header><span class="tag">J</span>RUN LOG<small>REPLAY</small></header>
+      <div class="body"><ul id="log"></ul></div>
+    </section>
+  </aside>
+
+  <footer class="bottom" id="footer"></footer>
+</div>
+<canvas id="grain"></canvas>
+<script type="module" src="main.js"></script>
+</body>
+</html>
