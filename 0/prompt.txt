@@ -1,0 +1,26 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Milestone 2 accepted. The honest reading in your notes (three of four mistake issues: investigation added cost and changed nothing; #2263 is the behavioural difference; #2274's retry came from the verifier) is exactly what the README should say.
+
+## Milestone 3: close the verification hole, wire the dashboard to real runs, write the README, prepare for going public
+
+### 1. Verifier: pre-existing tests are not the worker's to change
+In #2263 the baseline worker flipped an assertion in an existing test and verification passed. Change fix.py so that any modified or deleted line in a test file that existed before the worker ran is detected (git diff against the pre-edit commit, *_test.go files only, added lines are fine). On detection the attempt is rejected with reason `existing_test_modified`, the worker is retried once with that reason and an explicit instruction to leave existing tests alone, and if it happens again the outcome is `needs_human` with the diff recorded. Unit-test the detection. Then re-run `fence fix --issue 2263 --baseline` once and record what happens; do not tune anything to make it come out a particular way.
+
+### 2. Dashboard reads real runs
+Extend ui/build_data.py so ui/data/fence.json also carries: the five rows of runs/compare.json, the table and stated limits from runs/eval.json, the open-scan verdict counts, and the entries of runs/decisions.md. In the dashboard: replace the "added / deleted per month" panel with a FENCE VS BASELINE table (issue, verdict, outcome in each mode, cost, time), replace "issues per month" with the eval table including its printed caveat, and let the replay switch between at least #2256 (mistake -> fixed) and #2263 (decision -> asked) via a small selector and `?issue=N`. A viewer must be able to see, without reading any file, one issue where Fence fixed and one where it stopped and asked. Keep it plain HTML/CSS/JS, no frameworks. Check it in a browser at 1600x950 and at 1100 wide and fix any overlapping or clipped text.
+
+### 3. README.md and CLAUDE.md
+README, written for a hackathon judge who has three minutes:
+- What Fence does in four lines, and the honest framing: the worker is headless Claude Code; Fence is the policy, verification and measurement layer.
+- The role of each of the three required tools inside the running product, each with a concrete artefact in this repo: Entire (checkpoints read through git blame, graph search/verify/explain, Brain for rulings), Neatlogs (one trace per run with real cost; link the trace ids from runs/), cfo.ai (plan built from measured cost per issue; this section stays a placeholder until the plan exists).
+- Evidence tables copied from runs/compare.json and runs/eval.json, with the limits printed next to the numbers, not in a footnote.
+- "A run where an action failed and what the agent did next": #2274 baseline, from the recorded attempts.
+- How to run it, what keys it needs, what it costs.
+- A "What is not real" section: who answers the questions, how demo issues were chosen, what was not verified.
+CLAUDE.md: short working notes for agents in this repo (layout, commands, rules: never print keys, never write to FENCE_TARGET, tests must stay offline).
+
+### 4. Pre-publication check
+This repo is private now and will be made public. Before that: scan every blob reachable from all refs, including refs/entire/checkpoints/*, for the values of the keys in .env (read them at runtime, never print them), for email addresses, and for absolute home-directory paths. Report counts per category and per ref type. If redaction missed something, say where; do not rewrite history without asking.
+
+Rules as before. Report after each part.
+</cross-session-message>
