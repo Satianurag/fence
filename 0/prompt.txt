@@ -1,0 +1,15 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Milestone 4 accepted. Thanks for the precise account of #2033 and #2263: the verifier does not stop a worker from overriding a recorded decision when existing tests still pass, only the verdict did. Put that sentence in the README next to the compare table.
+
+Two small follow-ups, then milestone 5.
+
+1. fence.ask span kind: change it from TOOL to CHAIN so the "asked a human" detection can match on span type alone, since Neatlogs ignores span_names. Confirm first that no other Fence span is emitted as CHAIN; if one is, tell me instead of changing it. I am updating the detection (749b960e…) to span_types ["CHAIN"] with the write profile; the active CLI profile is back on your read profile, sorry for leaving it switched. After the change, run one ask (re-run #2263 fence mode into the clean project) and report whether the detection fired on it and only on it.
+
+2. Milestone 5, in order:
+   a. README: add the #2033 baseline as the second recovery example beside #2274, and a short "What the numbers do not show" paragraph under the compare table (one run per cell, issues picked for small test packages, nobody reviewed the fixes).
+   b. Pre-publication: the first project's UUID in checkpoint refs is acceptable; it is an identifier. Re-run the scan once more after your last commit and report the final counts for keys (must be 0), emails and home paths, per ref type.
+   c. Write docs/DEMO.md: a 3-minute demo script a person can read aloud while screen-recording, in this order: the problem (10 s), `fence fix --issue 2256` live or from the run file (mistake -> fixed -> verified), #2033 fence vs baseline (decision -> asked, while baseline changed it), ask once then precedent (#2160 -> #1554), the Neatlogs trace and the detection, the dashboard replay, the cfo.ai plan (placeholder line until it exists). Give exact commands and URLs/trace ids to show for each step and the seconds budget per step.
+   d. Leave CLAUDE.md alone; the owner will decide.
+
+Report after each part as before.
+</cross-session-message>
