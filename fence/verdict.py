@@ -14,7 +14,13 @@ from typing import Any, Callable
 from .evidence import Excerpt, render
 
 VERDICTS = ("mistake", "decision", "no_record")
+PRECEDENT = "precedent"  # only possible when prior rulings were recalled
 TIMEOUT_S = 300
+
+RULINGS_NOTE = """Prior rulings may be supplied. They are answers a maintainer already gave about earlier issues.
+If one of them settles how this issue should be handled, reply with "verdict": "precedent" and add "ruling_id": the id of that ruling;
+quotes may then be []. A ruling settles the issue only if it is about the same behaviour or the same kind of request, not merely the same area of code.
+If no ruling settles it, ignore them and use the three verdicts above."""
 
 SYSTEM = """You are Fence, a reviewer that decides whether code behaviour reported in a GitHub issue was a mistake or a deliberate decision.
 You are given the issue and evidence excerpts recorded when the code was written: commit messages, agent session transcripts and prompts.
@@ -27,6 +33,8 @@ Verdicts:
 - "no_record": there is no usable record for the code in question. Use it only when the evidence is about different code or
   functionality than the issue, which mainly happens when the code was found by search instead of being named by the issue.
   Silence about the behaviour in evidence that is about the right code is "mistake", not "no_record".
+
+PRIOR_RULINGS
 
 Reply with one JSON object and nothing else, no code fence:
 {"verdict": "mistake" | "decision" | "no_record",
@@ -61,6 +69,7 @@ class Verdict:
     confidence: float
     rationale: str
     quotes: list[dict[str, Any]] = field(default_factory=list)
+    ruling_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,13 +104,17 @@ def parse_cli_output(stdout: str, model: str, prompt: str) -> LLMCall:
     return call
 
 
+def system_prompt(with_rulings: bool = True) -> str:
+    return SYSTEM.replace("PRIOR_RULINGS", RULINGS_NOTE if with_rulings else "").replace("\n\n\n", "\n\n")
+
+
 def run_claude(prompt: str, model: str) -> LLMCall:
     """Run headless Claude Code with no tools, in an empty directory so no project settings or hooks apply."""
     t0 = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="fence-llm-") as cwd:
         try:
             p = subprocess.run(
-                ["claude", "-p", "--model", model, "--output-format", "json", "--tools", "", "--system-prompt", SYSTEM,
+                ["claude", "-p", "--model", model, "--output-format", "json", "--tools", "", "--system-prompt", system_prompt(),
                  "--no-session-persistence", "--strict-mcp-config", "--setting-sources", ""],
                 input=prompt, capture_output=True, text=True, cwd=cwd, timeout=TIMEOUT_S)
         except (OSError, subprocess.TimeoutExpired) as e:
@@ -113,7 +126,7 @@ def run_claude(prompt: str, model: str) -> LLMCall:
     return call
 
 
-def build_prompt(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list[Excerpt]) -> str:
+def build_prompt(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list[Excerpt], rulings: list[dict[str, str]] | None = None) -> str:
     spans = "\n".join(f"- {f}:{a}-{b} ({how})" for f, a, b, how in resolved["span_list"])
     by_search = resolved.get("located_by") == "search"
     heading = ("The issue names no file or symbol. These functions were found by searching the code for the issue title, so they may not be "
@@ -122,8 +135,9 @@ def build_prompt(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list
     return (
         f"<issue number=\"{issue['number']}\">\n<title>{issue.get('title') or ''}</title>\n{(issue.get('body') or '')[:6000]}\n</issue>\n\n"
         f"{heading} ({resolved['lines_linked']} of {resolved['lines']} blamed lines trace to a recorded checkpoint):\n{spans}\n\n"
-        f"Evidence, most-blamed commit first:\n\n{render(excerpts)}\n\n"
-        "Classify this issue. Reply with the JSON object only."
+        f"Evidence, most-blamed commit first:\n\n{render(excerpts) or '(no evidence: no located line traces to a recorded checkpoint)'}\n\n"
+        + (("Prior rulings from maintainers:\n" + "\n".join(f"<ruling id=\"{r['id']}\">{r['text']}</ruling>" for r in rulings) + "\n\n") if rulings else "")
+        + "Classify this issue. Reply with the JSON object only."
     )
 
 
@@ -131,7 +145,7 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def parse_verdict(text: str, excerpts: list[Excerpt]) -> Verdict:
+def parse_verdict(text: str, excerpts: list[Excerpt], rulings: list[dict[str, str]] | None = None) -> Verdict:
     """Validate the model's reply. Raises VerdictError with a reason the model can act on."""
     t = text.strip()
     if t.startswith("```"):
@@ -142,8 +156,15 @@ def parse_verdict(text: str, excerpts: list[Excerpt]) -> Verdict:
         raise VerdictError(f"reply is not valid JSON: {e}") from None
     if not isinstance(o, dict):
         raise VerdictError("reply must be a JSON object")
-    if o.get("verdict") not in VERDICTS:
-        raise VerdictError(f"verdict must be one of {', '.join(VERDICTS)}")
+    ruling_ids = [r["id"] for r in rulings or []]
+    allowed = VERDICTS + ((PRECEDENT,) if ruling_ids else ())
+    if o.get("verdict") not in allowed:
+        raise VerdictError(f"verdict must be one of {', '.join(allowed)}")
+    ruling_id = None
+    if o["verdict"] == PRECEDENT:
+        ruling_id = o.get("ruling_id")
+        if ruling_id not in ruling_ids:
+            raise VerdictError("a precedent verdict needs ruling_id set to the id of one of the supplied rulings")
     conf = o.get("confidence")
     if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
         raise VerdictError("confidence must be a number between 0 and 1")
@@ -165,17 +186,19 @@ def parse_verdict(text: str, excerpts: list[Excerpt]) -> Verdict:
         quotes.append(dict(evidence_id=i, source=ex.source, commit=ex.commit, checkpoint=ex.checkpoint, quote=q["quote"]))
     if o["verdict"] == "decision" and not quotes:
         raise VerdictError("a decision verdict needs at least one quote")
-    return Verdict(o["verdict"], float(conf), o["rationale"].strip(), quotes)
+    return Verdict(o["verdict"], float(conf), o["rationale"].strip(), quotes, ruling_id)
 
 
 def classify(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list[Excerpt], model: str,
-             runner: Runner = run_claude) -> tuple[Verdict, list[LLMCall]]:
-    """Verdict plus every LLM call made. With no evidence the answer is no_record and no call is made."""
-    if not resolved["spans"]:
-        return Verdict("no_record", 1.0, "No code was located for this issue, by name or by search, so there are no lines to trace to a checkpoint."), []
-    if not excerpts:
-        return Verdict("no_record", 1.0, f"None of the {resolved['lines']} blamed lines trace to a recorded checkpoint."), []
-    prompt = build_prompt(issue, resolved, excerpts)
+             runner: Runner = run_claude, rulings: list[dict[str, str]] | None = None) -> tuple[Verdict, list[LLMCall]]:
+    """Verdict plus every LLM call made. With no evidence and no prior rulings the answer is no_record and no call is made;
+    with rulings the model is still asked, because a ruling can settle an issue that has no record."""
+    if not rulings:
+        if not resolved["spans"]:
+            return Verdict("no_record", 1.0, "No code was located for this issue, by name or by search, so there are no lines to trace to a checkpoint."), []
+        if not excerpts:
+            return Verdict("no_record", 1.0, f"None of the {resolved['lines']} blamed lines trace to a recorded checkpoint."), []
+    prompt = build_prompt(issue, resolved, excerpts, rulings)
     calls: list[LLMCall] = []
     problem = ""
     for attempt in range(2):
@@ -186,7 +209,7 @@ def classify(issue: dict[str, Any], resolved: dict[str, Any], excerpts: list[Exc
             problem = call.error
             continue
         try:
-            return parse_verdict(call.output, excerpts), calls
+            return parse_verdict(call.output, excerpts, rulings), calls
         except VerdictError as e:
             problem = str(e)
             call.error = f"invalid verdict: {problem}"

@@ -7,9 +7,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import config, evidence, fix, trace
+from . import config, evidence, fix, memory, trace
 from .resolve import Repo, resolve_issue
-from .verdict import LLMCall, Verdict, VerdictError, classify
+from .verdict import PRECEDENT, LLMCall, Verdict, VerdictError, classify
 
 LOCATED_KEYS = ("rev", "located_by", "search_error", "files_named", "symbols_named", "spans", "span_list", "lines", "lines_linked", "checkpoints")
 
@@ -34,12 +34,13 @@ def load_issue(issues_path: Path, number: int) -> dict[str, Any]:
 
 
 def new_run(issue: dict[str, Any], cfg: config.Config) -> dict[str, Any]:
-    return dict(issue=issue["number"], title=issue["title"], model=cfg.model, verdict=None, located=None, evidence=[], cost=_cost([]), trace_id=None, error=None)
+    return dict(issue=issue["number"], title=issue["title"], model=cfg.model, verdict=None, outcome=None, rulings=[], located=None, evidence=[], cost=_cost([]), trace_id=None, error=None)
 
 
 def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.Tracer, run: dict[str, Any], calls: list[LLMCall],
-                      at_created: bool, search: bool) -> tuple[dict[str, Any], Verdict]:
-    """locate -> evidence -> verdict as spans on `tracer`; fills `run` and appends to `calls`. Raises on a failed step."""
+                      at_created: bool, search: bool, use_memory: bool = True, out_dir: Path | None = None) -> tuple[dict[str, Any], Verdict]:
+    """locate -> evidence -> recall -> verdict as spans on `tracer`; fills `run` and appends to `calls`. Raises on a failed step.
+    run["outcome"] is what Fence does next: fix (mistake), precedent (a stored ruling settles it) or ask (a question file is written)."""
     repo = Repo(cfg.target)
     with tracer.step("locate", input=dict(issue=issue["number"], at_created=at_created, search=search)) as s:
         resolved = resolve_issue(repo, issue, at_created, search)
@@ -49,10 +50,20 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
         excerpts = evidence.collect(repo, resolved)
         run["evidence"] = [e.to_dict() for e in excerpts]
         s.output = dict(excerpts=len(excerpts), chars=sum(len(e.text) for e in excerpts), sources=[f"{e.commit}:{e.source}" for e in excerpts])
-    with tracer.step("verdict", input=dict(model=cfg.model, excerpts=len(excerpts))) as s:
+    rulings: list[dict[str, str]] = []
+    if use_memory:
+        with tracer.step("recall", input=dict(query=issue["title"])) as s:
+            try:
+                rulings = memory.recall(issue["title"])
+            except memory.MemoryError_ as e:  # a missing brain must not stop the investigation
+                run["recall_error"] = str(e)
+                s.fail(str(e))
+            run["rulings"] = rulings
+            s.output = rulings
+    with tracer.step("verdict", input=dict(model=cfg.model, excerpts=len(excerpts), rulings=len(rulings))) as s:
         made: list[LLMCall] = []
         try:
-            verdict, made = classify(issue, resolved, excerpts, cfg.model)
+            verdict, made = classify(issue, resolved, excerpts, cfg.model, rulings=rulings)
         except VerdictError as e:
             made = getattr(e, "calls", [])
             raise
@@ -62,6 +73,16 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
             run["cost"] = _cost(calls)
         run["verdict"] = verdict.to_dict()
         s.output = run["verdict"]
+    run["outcome"] = {"mistake": "fix", PRECEDENT: "precedent"}.get(verdict.verdict, "ask")
+    if verdict.verdict == PRECEDENT:
+        run["ruling"] = next(r for r in rulings if r["id"] == verdict.ruling_id)
+    if run["outcome"] == "ask" and out_dir is not None:
+        with tracer.step("ask", input=dict(verdict=verdict.verdict)) as s:
+            q = out_dir / "questions" / f"{issue['number']}.md"
+            q.parent.mkdir(parents=True, exist_ok=True)
+            q.write_text(memory.question_markdown(issue, run))
+            run["question"] = f"runs/questions/{issue['number']}.md" if out_dir == config.ROOT / "runs" else str(q)
+            s.output = run["question"]
     return resolved, verdict
 
 
@@ -81,15 +102,16 @@ def finish(run: dict[str, Any], tracer: trace.Tracer, cfg: config.Config, out_pa
         json.dump(run, fh, indent=1, ensure_ascii=False)
 
 
-def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Path, at_created: bool = True, send_trace: bool = True, search: bool = True) -> dict[str, Any]:
+def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Path, at_created: bool = True, send_trace: bool = True, search: bool = True,
+                use_memory: bool = True) -> dict[str, Any]:
     if not cfg.target:
         raise SystemExit("FENCE_TARGET is not set")
     issue = load_issue(issues_path, number)
     tracer = trace.Tracer("fence.investigate", cfg.neatlogs_project, input=dict(issue=number, title=issue["title"]))
     run = new_run(issue, cfg)
     try:
-        investigate_steps(issue, cfg, tracer, run, [], at_created, search)
-        tracer.root.output = run["verdict"]
+        investigate_steps(issue, cfg, tracer, run, [], at_created, search, use_memory, out_dir)
+        tracer.root.output = dict(run["verdict"], outcome=run["outcome"])
     except Exception as e:
         run["error"] = f"{type(e).__name__}: {e}"
     finish(run, tracer, cfg, out_dir / f"{number}.json", send_trace)
@@ -114,10 +136,11 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
         rationale: str | None = None
         if not baseline_mode:
             # HEAD, not the issue-creation commit: the worker edits today's code, so the spans must match it
-            resolved, verdict = investigate_steps(issue, cfg, tracer, run, calls, at_created=False, search=search)
+            resolved, verdict = investigate_steps(issue, cfg, tracer, run, calls, at_created=False, search=search, out_dir=out_dir)
             if verdict.verdict != "mistake":
                 run["action"] = "not_fixed"
-                run["reason"] = f"verdict is {verdict.verdict}; Fence only changes code on a mistake verdict"
+                run["reason"] = (f"settled by ruling {verdict.ruling_id}; nobody was asked" if verdict.verdict == PRECEDENT
+                                 else f"verdict is {verdict.verdict}; Fence only changes code on a mistake verdict and asked a human instead")
                 tracer.root.output = dict(verdict=verdict.verdict, action=run["action"])
                 return run
             span_list, rationale = resolved["span_list"], verdict.rationale
@@ -200,6 +223,20 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
     return run
 
 
+def answer(number: int, ruling: str, source: str, cfg: config.Config, issues_path: Path, out_dir: Path, send_trace: bool = True, search: bool = True) -> dict[str, Any]:
+    """Store a human's ruling in the brain, then run the issue again so the ruling is applied."""
+    issue = load_issue(issues_path, number)
+    fact = memory.remember(issue, ruling, source)
+    rec = dict(issue=number, title=issue["title"], ruling=ruling, source=source, fact=fact, path=memory.RULING_PATH)
+    (out_dir / "answers").mkdir(parents=True, exist_ok=True)
+    with open(out_dir / "answers" / f"{number}.json", "w") as fh:
+        json.dump(rec, fh, indent=1, ensure_ascii=False)
+    asked = out_dir / f"{number}.json"
+    if asked.exists():  # keep the run that led to the question next to the run that applies the answer
+        asked.replace(out_dir / f"{number}.asked.json")
+    return investigate(number, cfg, issues_path, out_dir, send_trace=send_trace, search=search)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="fence")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -211,6 +248,10 @@ def main(argv: list[str] | None = None) -> int:
     common.add_argument("--no-trace", action="store_true", help="do not post the trace to Neatlogs")
     inv = sub.add_parser("investigate", parents=[common], help="locate the code an issue names, gather intent evidence and give a verdict")
     inv.add_argument("--head", action="store_true", help="resolve against HEAD instead of the commit current when the issue was filed")
+    inv.add_argument("--no-memory", action="store_true", help="do not recall prior rulings from Entire Brain")
+    ans = sub.add_parser("answer", parents=[common], help="store a maintainer's ruling for an issue and run the issue again")
+    ans.add_argument("ruling", help="the ruling, in the maintainer's words")
+    ans.add_argument("--source", required=True, help="who gave the ruling and where, e.g. a comment URL")
     fx = sub.add_parser("fix", parents=[common], help="investigate, and on a mistake verdict fix the issue in a private work copy")
     fx.add_argument("--baseline", action="store_true", help="skip investigation and send the issue straight to the worker")
     fx.add_argument("--work", type=Path, default=config.ROOT / "work", help="directory for work copies")
@@ -218,8 +259,12 @@ def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
 
     if a.cmd == "investigate":
-        run = investigate(a.issue, cfg, a.issues, a.out, at_created=not a.head, send_trace=not a.no_trace, search=not a.no_search)
+        run = investigate(a.issue, cfg, a.issues, a.out, at_created=not a.head, send_trace=not a.no_trace, search=not a.no_search, use_memory=not a.no_memory)
         out_path = a.out / f"{a.issue}.json"
+    elif a.cmd == "answer":
+        run = answer(a.issue, a.ruling, a.source, cfg, a.issues, a.out, send_trace=not a.no_trace, search=not a.no_search)
+        out_path = a.out / f"{a.issue}.json"
+        print(f"stored ruling under {memory.RULING_PATH}; ran #{a.issue} again")
     else:
         run = fix_issue(a.issue, cfg, a.issues, a.out, a.work, baseline_mode=a.baseline, send_trace=not a.no_trace, search=not a.no_search)
         out_path = a.out / "fix" / f"{a.issue}{'.baseline' if a.baseline else ''}.json"
@@ -227,6 +272,10 @@ def main(argv: list[str] | None = None) -> int:
     v = run["verdict"]
     if v:
         print(f"#{run['issue']} {v['verdict']} (confidence {v['confidence']:.2f}): {v['rationale']}")
+    if run.get("outcome") == "precedent":
+        print(f"outcome: precedent, nobody asked. Ruling {run['ruling']['id']}: {run['ruling']['text']}")
+    elif run.get("outcome") == "ask" and run.get("question"):
+        print(f"outcome: ask a human once -> {run['question']}")
     loc = run["located"] or {}
     if loc:
         print(f"located by: {loc.get('located_by') or 'nothing'} | spans: {loc.get('spans', 0)} | lines traced: {loc.get('lines_linked', 0)}/{loc.get('lines', 0)}")
