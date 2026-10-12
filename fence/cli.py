@@ -189,7 +189,7 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
                     verification = fix.Verification(False, "the worker changed no Go files", files_changed=fix.changed_files(work))
                 rec["verification"] = verification.to_dict()
                 s.input = dict(test=fix.test_command(packages)) if packages else None
-                s.output = dict(ok=verification.ok, reason=verification.reason, repro_tests=verification.repro_tests,
+                s.output = dict(ok=verification.ok, reason=verification.reason, code=verification.code, repro_tests=verification.repro_tests,
                                 newly_passing=verification.newly_passing, regressions=verification.regressions,
                                 reports=[r.text for r in verification.runs])
                 if not verification.ok:
@@ -198,10 +198,12 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
             if verification.ok:
                 break
             if attempt == 1:
-                with tracer.step("explain_failure") as s:
-                    explained = fix.explain_failure(work, packages) if packages else "no Go files were changed"
-                    rec["explained_failure"] = explained
-                    s.output = explained
+                explained = ""
+                if verification.code != fix.EXISTING_TEST_MODIFIED:  # that rejection carries its own diff; there is no test failure to explain
+                    with tracer.step("explain_failure") as s:
+                        explained = fix.explain_failure(work, packages) if packages else "no Go files were changed"
+                        rec["explained_failure"] = explained
+                        s.output = explained
                 prompt = fix.retry_prompt(first, verification, explained)
 
         if verification and verification.ok:
@@ -210,6 +212,11 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
                 s.output = run["commit"]
             run["action"] = "fixed"
             run["tests_newly_passing"] = verification.newly_passing
+        elif verification and verification.code == fix.EXISTING_TEST_MODIFIED:
+            # twice in a row: the change needs an existing test rewritten, which is a human's call
+            run["action"] = "needs_human"
+            run["reason"] = verification.reason
+            run["existing_test_diff"] = verification.existing_test_diff
         else:
             run["action"] = "fix_failed"
             run["reason"] = verification.reason if verification else "no verification ran"
