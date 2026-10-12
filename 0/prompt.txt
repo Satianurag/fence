@@ -1,0 +1,11 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+The owner created a clean Neatlogs project named "fence". NEATLOGS_RUNS_API_KEY and NEATLOGS_RUNS_PROJECT are now in .env (git-ignored); your override picks them up, no restart of anything else needed. Do not print the values.
+
+Changes to the plan from here:
+1. Finish whatever run is in flight, then make sure every further investigate/fix run goes to the "fence" project. Confirm it with one line from the first run that lands there (trace id plus the project name the response or `neatlogs traces get` reports). If ingest rejects the key or the project name, stop and tell me the status code and message; do not fall back silently to the old project.
+2. Once part 4 is complete, re-run these into the clean project so the README can link traces that sit beside nothing else: #2256 fence fix and baseline fix; #2263 fence (ask) and baseline; the #2160 ask -> answer -> #1554 precedent sequence (reset the brain ruling first so the first run really asks, then store the same maintainer quote with its source again). Do not re-run the 52-issue eval or the open scan; they stay in the first project, and the README says so.
+3. Do not try to reproduce the #2274 baseline retry. It happened once for real; keep that run file and its trace id as the recovery evidence and state in the README that it lives in the first project. If a fresh run happens to fail verification and recover, record it, but do not go looking for one.
+4. README evidence tables then take their numbers from the clean-project runs where they exist, each row with its trace id.
+
+Everything else in milestone 4 stands. Report as before.
+</cross-session-message>
