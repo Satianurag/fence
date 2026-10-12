@@ -4,8 +4,8 @@
  "model": "sonnet",
  "verdict": {
   "verdict": "decision",
-  "confidence": 0.6,
-  "rationale": "The original commit and plan explicitly chose to give only Husky the strong warning with copy-paste instructions, while other managers including Lefthook get a note to re-run `entire enable`. That split was deliberate, even though the issue shows the Lefthook classification is factually questionable.",
+  "confidence": 0.72,
+  "rationale": "The original commit and plan deliberately split managers: Husky gets copy-paste durable instructions because it overwrites hooks, while others (including Lefthook) get a note to re-run `entire enable`. The Lefthook=false classification was chosen at design time, though whether it was factually correct is what the issue disputes.",
   "quotes": [
    {
     "evidence_id": 1,
@@ -77,14 +77,14 @@
   }
  ],
  "cost": {
-  "usd": 0.020503,
+  "usd": 0.00476,
   "llm_calls": 1,
   "input_tokens": 2,
-  "output_tokens": 194,
-  "cache_read_tokens": 666,
-  "cache_write_tokens": 4623
+  "output_tokens": 202,
+  "cache_read_tokens": 4718,
+  "cache_write_tokens": 566
  },
- "trace_id": "6766b7ba6a740fd776174b2f9bab80a6",
+ "trace_id": "759a6f0d0c9d5808de8e576fb3f16ee7",
  "error": null,
  "mode": "fence",
  "action": "not_fixed",
@@ -95,7 +95,7 @@
  "tests_newly_passing": [],
  "question": "runs/questions/2263.md",
  "reason": "verdict is decision; Fence only changes code on a mistake verdict and asked a human instead",
- "duration_s": 8.9,
+ "duration_s": 8.6,
  "trace_spans": 8,
  "trace_project": "fence"
 }

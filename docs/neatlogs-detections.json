@@ -10,7 +10,6 @@
    "runOn": {
     "frequency": "span_type",
     "span_types": [
-     "TOOL",
      "CHAIN"
     ],
     "span_names": [
@@ -122,7 +121,7 @@
   }
  ],
  "cli": [
-  "neatlogs detections create --group <group-uuid-for-Neutral> --type conditional --name 'Fence asked a human' --description 'Fence stopped instead of changing code: the verdict was decision or no_record and a question was written for a maintainer.' --threshold 0.5 --run-on '{\"frequency\": \"span_type\", \"span_types\": [\"TOOL\", \"CHAIN\"], \"span_names\": [\"fence.ask\"]}' --config '{\"conditions\": null, \"logic\": null, \"root\": {\"type\": \"group\", \"logic\": \"AND\", \"children\": [{\"type\": \"rule\", \"field\": \"status\", \"operator\": \"=\", \"value\": \"OK\"}]}}'",
+  "neatlogs detections create --group <group-uuid-for-Neutral> --type conditional --name 'Fence asked a human' --description 'Fence stopped instead of changing code: the verdict was decision or no_record and a question was written for a maintainer.' --threshold 0.5 --run-on '{\"frequency\": \"span_type\", \"span_types\": [\"CHAIN\"], \"span_names\": [\"fence.ask\"]}' --config '{\"conditions\": null, \"logic\": null, \"root\": {\"type\": \"group\", \"logic\": \"AND\", \"children\": [{\"type\": \"rule\", \"field\": \"status\", \"operator\": \"=\", \"value\": \"OK\"}]}}'",
   "neatlogs detections create --group <group-uuid-for-Negative> --type conditional --name 'Fence fix failed verification' --description 'The worker'\"'\"'s change was rejected by Fence'\"'\"'s own verification: a regression, a test that does not reproduce the issue, or a modified pre-existing test (existing_test_modified).' --threshold 0.5 --run-on '{\"frequency\": \"span_type\", \"span_types\": [\"TOOL\"], \"span_names\": [\"fence.verify\"]}' --config '{\"conditions\": null, \"logic\": null, \"root\": {\"type\": \"group\", \"logic\": \"AND\", \"children\": [{\"type\": \"rule\", \"field\": \"status\", \"operator\": \"=\", \"value\": \"ERROR\"}]}}'"
  ],
  "created": [

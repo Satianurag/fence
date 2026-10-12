@@ -78,7 +78,8 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
         run["ruling"] = next(r for r in rulings if r["id"] == verdict.ruling_id)
     if run["outcome"] == "ask" and out_dir is not None:
         with tracer.step("fence.ask", input=dict(verdict=verdict.verdict),
-                         metadata=dict(issue=issue["number"], verdict=verdict.verdict, outcome="ask", located_by=resolved.get("located_by"))) as s:
+                         metadata=dict(issue=issue["number"], verdict=verdict.verdict, outcome="ask", located_by=resolved.get("located_by")),
+                         kind="CHAIN") as s:  # the only CHAIN span Fence emits; the "asked a human" detection keys on it
             q = out_dir / "questions" / f"{issue['number']}.md"
             q.parent.mkdir(parents=True, exist_ok=True)
             q.write_text(memory.question_markdown(issue, run))

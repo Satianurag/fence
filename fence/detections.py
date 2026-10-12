@@ -22,8 +22,9 @@ def configs() -> list[dict[str, Any]]:
             type="conditional",
             groupName="Neutral",
             threshold=0.5,
-            # the fence.ask span exists only when Fence asks, so its name plus status OK is the whole condition
-            runOn=dict(frequency="span_type", span_types=["TOOL", "CHAIN"], span_names=["fence.ask"]),
+            # fence.ask is the only CHAIN span Fence emits and exists only when Fence asks. Neatlogs was seen to ignore
+            # span_names, so the span type carries the condition; the name is kept for readers.
+            runOn=dict(frequency="span_type", span_types=["CHAIN"], span_names=["fence.ask"]),
             config=dict(conditions=None, logic=None, root=_group("AND", _rule("status", "=", "OK"))),
             unverified_alternative=dict(
                 note="Same condition read from span metadata instead of the span name. The metadata field path was not confirmed "

@@ -25,6 +25,8 @@ Six open issues, each run two ways: through Fence, and straight to the same work
 
 ¹ #2274 baseline is the run from the first Neatlogs project ("Anurag's project"), kept because it is the recorded failure and recovery described below. It was not repeated.
 
+**The verifier does not stop a worker from overriding a recorded decision when existing tests still pass; only the verdict did.** (#2033 below.)
+
 What this does and does not show:
 
 - **On the four mistake issues the investigation added cost and, on three of them, changed nothing.** Both modes fixed #2256, #1870 and #2686 on the first attempt; the baseline cost 23 to 37% less. On #2274 the baseline needed two attempts (see below); with one run each, that is an observation, not a finding.
@@ -32,8 +34,8 @@ What this does and does not show:
   - **#2263 baseline** tried to change it anyway. Attempt 1 broke an existing test that asserts the old behaviour. Attempt 2 edited that test, which Fence's verifier refuses (`existing_test_modified`), so the run ended as `needs_human` with nothing committed, after 10 minutes and $0.17.
   - **#2033 baseline** also broke existing tests on attempt 1 (`TestParseCheckpointRemoteFlag/unsupported_provider`), then found a change that passes on attempt 2 and was committed in the work copy. It overrode a recorded decision without anyone being asked, in 25 minutes for $0.24. A maintainer PR for the same feature is open, so it may be right on substance.
 - **The verifier rule that stopped #2263 was added after seeing it.** In the first baseline run on #2263 the worker flipped the assertion and verification passed ([runs/fix/2263.baseline.before-test-guard.json](runs/fix/2263.baseline.before-test-guard.json)). Fence now rejects any changed or deleted line in a test that existed before the worker ran.
-- **One run per cell.** Worker output and cost vary between runs. The mistake issues other than #2256 were picked because their test packages are small, out of 34 open issues Fence called mistake, which favours easy fixes. #2033 was picked from its title ("supports only the `github` provider" reads as a deliberate limit); #2263 because it had the most confident decision verdict in the scan.
-- **"Fixed" means verified, not reviewed.** The worker's test fails without its fix and passes with it, and nothing in the tested packages regressed. No human has judged whether these are the fixes a maintainer would want.
+
+**What the numbers do not show.** Each cell is one run, and worker output, cost and even the verdict vary between runs. The mistake issues other than #2256 were picked because their test packages are small, out of 34 open issues Fence called mistake, which favours easy fixes; #2033 was picked from its title ("supports only the `github` provider" reads as a deliberate limit) and #2263 because it had the most confident decision verdict in the scan. "Fixed" means verified, not reviewed: the worker's test fails without its fix and passes with it, and nothing in the tested packages regressed. Nobody has reviewed the fixes or judged whether a maintainer would want them.
 
 ## A run where an action failed, and what the agent did next
 Baseline run on #2274, recorded in [runs/fix/2274.baseline.json](runs/fix/2274.baseline.json), Neatlogs trace `ac2f762e4d41cecc9f027c1a65707513` (in the first project, "Anurag's project").
@@ -43,7 +45,15 @@ Baseline run on #2274, recorded in [runs/fix/2274.baseline.json](runs/fix/2274.b
 3. **What happened next.** Fence piped the failing `go test` output through `entire graph explain` and gave the worker that, plus the rejection reason, as its next prompt.
 4. **Attempt 2.** The worker corrected its change. Verification: 1 test newly passing, no regressions against the pre-edit baseline. Fence committed it on `fence/issue-2274` in the work copy.
 
-This failure was not staged and was not reproduced on purpose. Two more happened by themselves in the later runs, both in baseline mode and both in the "fence" project: #2033 (trace `3e5ddbd88914720c38549db486c3c449`, rejected for regressions, recovered on attempt 2) and #2263 (trace `7c82f50f2a3cc1c68ff0399ea87eb90d`, rejected twice, ended `needs_human`). Fence mode has never needed the retry. The `explain` input is the tail of the test output, which for a large package is mostly unrelated log lines.
+**A second recovery: #2033 baseline**, [runs/fix/2033.baseline.json](runs/fix/2033.baseline.json), trace `3e5ddbd88914720c38549db486c3c449` in the "fence" project.
+
+1. **Attempt 1.** The worker added generic git provider support to `setup.go` with a new test, ran only that test, and reported success.
+2. **Fence's verification** found two existing tests NEWLY FAILING: `TestParseCheckpointRemoteFlag` and its `unsupported_provider` case, which asserts that unknown providers are rejected. Attempt rejected; the "Fence: fix failed verification" detection fired on this span.
+3. **Attempt 2.** Given the failure, the worker reworked the change so the existing tests pass again alongside the new one. Verification: 1 test newly passing, no regressions. Committed in the work copy.
+
+This is a recovery in the mechanical sense only: the result overrides a behaviour the record says was chosen (see the compare table).
+
+Neither failure was staged or reproduced on purpose. A third, #2263 baseline (trace `7c82f50f2a3cc1c68ff0399ea87eb90d`), was rejected twice and ended `needs_human`. All three were in baseline mode; Fence mode has never needed the retry. The `explain` input is the tail of the test output, which for a large package is mostly unrelated log lines.
 
 ## Does the verdict agree with what maintainers did?
 
@@ -109,7 +119,7 @@ Every run posts one span tree to Neatlogs ([fence/trace.py](fence/trace.py)): a 
 | Detection | Id | Seen firing? |
 |---|---|---|
 | Fence: fix failed verification | `ed210539-07d4-44a7-9ee4-b35ef6894484` | Yes, correctly: 3 hits, all `fence.verify` spans with status ERROR (#2033 baseline once, #2263 baseline twice). |
-| Fence: asked a human | `749b960e-fa61-402e-a1b5-cf78c067da84` | Fires, but far too broadly: it hits every TOOL span with status OK (50+ hits across all runs), not only `fence.ask`. Neatlogs does not apply the `span_names` filter in `runOn`. The three real ask runs are among the hits; the rule needs another condition before it means anything. |
+| Fence: asked a human | `749b960e-fa61-402e-a1b5-cf78c067da84` | Not correctly yet. As created (TOOL spans named `fence.ask`) it hit every TOOL span with status OK, 93 hits, because Neatlogs does not apply the `span_names` filter in `runOn`. `fence.ask` is now emitted as the only CHAIN span so the rule can key on span type; the rule had not been switched to CHAIN when last checked, so it has not been seen firing on an ask alone. |
 
 Limits: the first detection is only correct because `fence.verify` is the only step that ends in ERROR in these runs; the same missing name filter applies to it. Neatlogs computes its own cost for each LLM span and it does not match Claude Code's: on three calls it was 35% under, 4% under and 34% over, apparently because cache writes and reads are not priced as such. All costs in this README are Claude Code's own `total_cost_usd`. The ingest endpoint rejects request bodies over about 8 KB, so traces are gzipped and long span text is truncated; the full prompt and evidence are in the run files.
 
@@ -141,7 +151,7 @@ uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -e '.[dev]'
 .venv/bin/fence fix --issue 2256 --baseline  # no investigation: straight to the worker
 .venv/bin/fence answer --issue 2160 "<ruling>" --source "<who, where>"
 .venv/bin/fence eval                         # all closed, named, traced issues; reuses runs/eval/
-.venv/bin/python -m pytest                   # 83 tests, no network
+.venv/bin/python -m pytest                   # 84 tests, no network
 .venv/bin/fence detections                    # the two Neatlogs detection configs
 ```
 

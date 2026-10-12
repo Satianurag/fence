@@ -85,3 +85,13 @@ def test_send_retries_a_refused_body_with_a_smaller_one(monkeypatch):
     monkeypatch.setattr(trace, "post", fake_post)
     assert trace.send(t, "https://example.invalid", "k") == ("abc", 2)
     assert len(sizes) == 2 and sizes[1] < sizes[0]
+
+
+def test_only_the_ask_step_is_a_chain_span():
+    t = Tracer("run", "proj")
+    with t.step("fence.verdict"):
+        pass
+    with t.step("fence.ask", kind="CHAIN"):
+        pass
+    kinds = [(c["name"], c["kind"], "tool_name" in c) for c in t.payload()["children"]]
+    assert kinds == [("fence.verdict", "TOOL", True), ("fence.ask", "CHAIN", False)]
