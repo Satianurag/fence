@@ -105,6 +105,7 @@ def finish(run: dict[str, Any], tracer: trace.Tracer, cfg: config.Config, out_pa
         else:
             try:
                 run["trace_id"], run["trace_spans"] = trace.send(tracer, cfg.neatlogs_endpoint, cfg.neatlogs_api_key)
+                run["trace_project"] = cfg.neatlogs_project
             except RuntimeError as e:
                 run["trace_error"] = str(e)
     out_path.parent.mkdir(parents=True, exist_ok=True)
