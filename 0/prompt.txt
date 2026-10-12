@@ -1,0 +1,42 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Project brief and first milestone for Fence.
+
+## What Fence is
+An agent that, before changing code for a GitHub issue, finds out why the code is the way it is. Pipeline: issue -> locate code -> git blame -> Entire checkpoint -> commit message / session transcript / prompt -> verdict:
+- mistake: nothing on record shows the behaviour was chosen -> write a failing test, fix, run tests, prepare a PR.
+- decision: the record shows the behaviour was chosen deliberately -> do not change it; present the evidence, ask a human once, remember the answer.
+- no_record: the lines have no checkpoint -> ask a human.
+Fence is the policy, verification and measurement layer; the worker that edits code is headless Claude Code.
+
+## What already exists in this repo (read these first)
+- fence/resolve.py: issue -> named files/symbols -> blame -> checkpoint -> evidence rows. Reads git only.
+- data/cli_issues.json: all 349 issues of entireio/cli. data/trace_at_created.json: resolver output for all of them.
+- ui/: static dashboard that replays one issue's evidence trail (ui/build_data.py builds ui/data/fence.json).
+- demo/: a hand-made failing test and fix for issue #2256.
+- .env (git-ignored): NEATLOGS_API_KEY, NEATLOGS_PROJECT_ID, FENCE_TARGET (path to a local entireio/cli clone that has the public checkpoint refs fetched), FENCE_MODEL.
+
+## Milestone 1: locate -> evidence -> verdict, traced, no edits to the target repo
+1. Turn fence/ into a proper Python package (Python 3.12, stdlib first; create .venv, add pyproject.toml). Keep resolve.py's logic but make it importable functions with type hints.
+2. fence/evidence.py: for each evidence commit, extract the intent text in this order: commit message body, then the checkpoint transcript (full.jsonl in the checkpoint ref), then the prompt. Return compact excerpts with their source, sized to fit an LLM prompt.
+3. fence/verdict.py: classify an issue as mistake / decision / no_record with a short rationale, a confidence, and the exact evidence quotes it relied on. The LLM call goes through headless Claude Code: `claude -p --model $FENCE_MODEL --output-format json`, and the token usage and cost are read from that JSON output. Ask for strict JSON and validate it; retry once on invalid output.
+4. fence/trace.py: build one span tree per run and POST it once to https://ingest.neatlogs.com/v1/trace (Authorization: Bearer $NEATLOGS_API_KEY, top-level "project": "Anurag's project"). Step spans use kind TOOL; each LLM call is a kind LLM span with model, tokens {prompt, completion}, and attributes neatlogs.llm.provider, neatlogs.llm.token_count.cache_read and .cache_write. A failed step sets status ERROR with an error string. Docs: https://docs.neatlogs.com/sdk/http-injection
+5. fence/cli.py with `fence investigate --issue N` that runs steps 1-4 and writes runs/<issue>.json (verdict, evidence, cost, neatlogs trace_id). Never print or log key values.
+6. Tests with pytest for the pure parts (reference extraction, evidence ordering, verdict JSON validation, span tree shape). No network in tests.
+7. Run it on issues #2256, #1924 and #784 and report the three verdicts, cost per run and trace ids.
+
+## Rules
+- Do not modify the FENCE_TARGET clone in this milestone.
+- Small commits with clear messages; push to origin main when a step is working.
+- If you use subagents, run them on the Haiku model only.
+- Reply to this session with a short status when each numbered step is done, and say plainly if something does not work.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b7aot3bx1</task-id>
+<tool-use-id>toolu_014fNDN6DVSQYXje9LGoVJ3f</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/b621b9ad-934b-4824-8368-b2b2ece057b4/tasks/b7aot3bx1.output</output-file>
+<status>completed</status>
+<summary>Background command "Create the venv, install the package, and check the refactored resolver reproduces the stored output" completed (exit code 0)</summary>
+</task-notification>
