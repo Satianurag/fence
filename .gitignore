@@ -7,3 +7,5 @@ __pycache__/
 .entire/tmp/
 .entire/metadata/
 .entire/settings.local.json
+*.egg-info/
+.pytest_cache/
