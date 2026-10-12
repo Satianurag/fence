@@ -17,10 +17,11 @@ from .verdict import LLMCall
 
 MAX_FIELD_CHARS = 20000
 FIELD_CAPS = (MAX_FIELD_CHARS, 8000, 4000, 2000, 1000, 300)
-# The ingest load balancer answers 403 to request bodies over roughly 9 KB (measured: ~8.9 KB passes,
-# 9.2 KB fails; the docs say 50 MB), so bodies are gzipped and span text is shortened until the
-# compressed body fits.
-MAX_BODY_BYTES = 8000
+# The ingest load balancer answers 403 to request bodies over about 8 KB (measured: 7,991 bytes passes,
+# 8,510 fails; the docs say 50 MB), and one gzipped body just under 8,000 bytes was refused too. So bodies
+# are gzipped, span text is shortened until the compressed body fits with margin, and a 403 is retried
+# with shorter text.
+MAX_BODY_BYTES = 6500
 POST_TIMEOUT_S = 30
 
 
@@ -116,17 +117,33 @@ class Tracer:
         p["project"] = self.project  # root only
         return p
 
+    def bodies(self, max_bytes: int = MAX_BODY_BYTES) -> Iterator[bytes]:
+        """Gzipped JSON request bodies that fit, largest first; each later one has shorter span text."""
+        fitting = [b for b in (encode(self.payload(cap)) for cap in FIELD_CAPS) if len(b) <= max_bytes]
+        yield from dict.fromkeys(fitting or [encode(self.payload(FIELD_CAPS[-1]))])
+
     def body(self, max_bytes: int = MAX_BODY_BYTES) -> bytes:
-        """Gzipped JSON request body, with span text shortened step by step until it fits."""
-        for cap in FIELD_CAPS:
-            data = encode(self.payload(cap))
-            if len(data) <= max_bytes:
-                break
-        return data
+        """The fullest gzipped body that fits."""
+        return next(self.bodies(max_bytes))
 
 
 def encode(payload: dict[str, Any]) -> bytes:
-    return gzip.compress(json.dumps(payload, ensure_ascii=False, default=str).encode())
+    return gzip.compress(json.dumps(payload, ensure_ascii=False, default=str).encode(), mtime=0)
+
+
+class Rejected(RuntimeError):
+    """Neatlogs refused the body with HTTP 403, which is how its size limit shows up."""
+
+
+def send(tracer: Tracer, endpoint: str, api_key: str) -> tuple[str, int]:
+    """Deliver the run's trace exactly once, falling back to a smaller body if one is refused."""
+    last: Rejected | None = None
+    for body in tracer.bodies():
+        try:
+            return post(body, endpoint, api_key)
+        except Rejected as e:
+            last = e
+    raise last or RuntimeError("no trace body to send")
 
 
 def post(body: bytes, endpoint: str, api_key: str) -> tuple[str, int]:
@@ -142,7 +159,7 @@ def post(body: bytes, endpoint: str, api_key: str) -> tuple[str, int]:
         with urllib.request.urlopen(req, timeout=POST_TIMEOUT_S) as r:
             reply = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Neatlogs returned HTTP {e.code}: {' '.join(re.sub('<[^>]+>', ' ', e.read().decode(errors='replace')).split())[:200]}") from None
+        raise (Rejected if e.code == 403 else RuntimeError)(f"Neatlogs returned HTTP {e.code}: {' '.join(re.sub('<[^>]+>', ' ', e.read().decode(errors='replace')).split())[:200]}") from None
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         raise RuntimeError(f"Neatlogs post failed: {type(e).__name__}") from None
     if not reply.get("trace_id"):

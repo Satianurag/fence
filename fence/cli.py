@@ -21,7 +21,7 @@ def _cost(calls: list[LLMCall]) -> dict[str, Any]:
     )
 
 
-def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Path, at_created: bool = True, send_trace: bool = True) -> dict[str, Any]:
+def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Path, at_created: bool = True, send_trace: bool = True, search: bool = True) -> dict[str, Any]:
     if not cfg.target:
         raise SystemExit("FENCE_TARGET is not set")
     with open(issues_path) as fh:
@@ -34,9 +34,9 @@ def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Pat
     run: dict[str, Any] = dict(issue=number, title=issue["title"], model=cfg.model, verdict=None, located=None, evidence=[], cost=_cost([]), trace_id=None, error=None)
     calls: list[LLMCall] = []
     try:
-        with tracer.step("locate", input=dict(issue=number, at_created=at_created)) as s:
-            resolved = resolve_issue(repo, issue, at_created)
-            run["located"] = {k: resolved[k] for k in ("rev", "files_named", "symbols_named", "spans", "span_list", "lines", "lines_linked", "checkpoints")}
+        with tracer.step("locate", input=dict(issue=number, at_created=at_created, search=search)) as s:
+            resolved = resolve_issue(repo, issue, at_created, search)
+            run["located"] = {k: resolved[k] for k in ("rev", "located_by", "search_error", "files_named", "symbols_named", "spans", "span_list", "lines", "lines_linked", "checkpoints") if k in resolved}
             s.output = run["located"]
         with tracer.step("evidence", input=[dict(commit=r["commit"], checkpoint=r["checkpoint"], lines=r["lines"]) for r in resolved["evidence"]]) as s:
             excerpts = evidence.collect(repo, resolved)
@@ -63,7 +63,7 @@ def investigate(number: int, cfg: config.Config, issues_path: Path, out_dir: Pat
             run["trace_error"] = "NEATLOGS_API_KEY is not set"
         else:
             try:
-                run["trace_id"], run["trace_spans"] = trace.post(tracer.body(), cfg.neatlogs_endpoint, cfg.neatlogs_api_key)
+                run["trace_id"], run["trace_spans"] = trace.send(tracer, cfg.neatlogs_endpoint, cfg.neatlogs_api_key)
             except RuntimeError as e:
                 run["trace_error"] = str(e)
 
@@ -81,13 +81,16 @@ def main(argv: list[str] | None = None) -> int:
     inv.add_argument("--issues", type=Path, default=config.ROOT / "data" / "cli_issues.json", help="issues JSON file")
     inv.add_argument("--out", type=Path, default=config.ROOT / "runs", help="directory for <issue>.json")
     inv.add_argument("--head", action="store_true", help="resolve against HEAD instead of the commit current when the issue was filed")
+    inv.add_argument("--no-search", action="store_true", help="do not fall back to `entire graph search` when the issue names no code")
     inv.add_argument("--no-trace", action="store_true", help="do not post the trace to Neatlogs")
     a = ap.parse_args(argv)
 
-    run = investigate(a.issue, config.load(), a.issues, a.out, at_created=not a.head, send_trace=not a.no_trace)
+    run = investigate(a.issue, config.load(), a.issues, a.out, at_created=not a.head, send_trace=not a.no_trace, search=not a.no_search)
     v = run["verdict"]
     if v:
         print(f"#{run['issue']} {v['verdict']} (confidence {v['confidence']:.2f}): {v['rationale']}")
+    loc = run["located"] or {}
+    print(f"located by: {loc.get('located_by') or 'nothing'} | spans: {loc.get('spans', 0)} | lines traced: {loc.get('lines_linked', 0)}/{loc.get('lines', 0)}")
     print(f"evidence excerpts: {len(run['evidence'])} | llm calls: {run['cost']['llm_calls']} | cost: ${run['cost']['usd']:.4f} | trace: {run['trace_id'] or run.get('trace_error') or 'not sent'}")
     print(f"wrote {a.out / (str(a.issue) + '.json')}")
     if run["error"]:

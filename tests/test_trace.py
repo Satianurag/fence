@@ -65,3 +65,23 @@ def test_body_is_gzipped_json_and_shrinks_to_fit():
     assert len(body) <= 5000
     p = json.loads(gzip.decompress(body))
     assert p["project"] == "proj" and "more chars]" in p["children"][0]["children"][0]["input"]
+
+
+def test_send_retries_a_refused_body_with_a_smaller_one(monkeypatch):
+    import random
+    from fence import trace
+    random.seed(2)
+    noise = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789 ") for _ in range(9000))
+    t = Tracer("run", "proj")
+    with t.step("verdict", input=noise):
+        pass
+    sizes = []
+
+    def fake_post(body, endpoint, key):
+        sizes.append(len(body))
+        if len(sizes) == 1:
+            raise trace.Rejected("Neatlogs returned HTTP 403")
+        return "abc", 2
+    monkeypatch.setattr(trace, "post", fake_post)
+    assert trace.send(t, "https://example.invalid", "k") == ("abc", 2)
+    assert len(sizes) == 2 and sizes[1] < sizes[0]
