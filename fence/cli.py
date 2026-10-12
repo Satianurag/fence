@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import config, evaluate, evidence, fix, memory, trace
+from . import config, detections, evaluate, evidence, fix, memory, trace
 from .resolve import Repo, resolve_issue
 from .verdict import PRECEDENT, LLMCall, Verdict, VerdictError, classify
 
@@ -42,17 +42,17 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
     """locate -> evidence -> recall -> verdict as spans on `tracer`; fills `run` and appends to `calls`. Raises on a failed step.
     run["outcome"] is what Fence does next: fix (mistake), precedent (a stored ruling settles it) or ask (a question file is written)."""
     repo = Repo(cfg.target)
-    with tracer.step("locate", input=dict(issue=issue["number"], at_created=at_created, search=search)) as s:
+    with tracer.step("fence.locate", input=dict(issue=issue["number"], at_created=at_created, search=search)) as s:
         resolved = resolve_issue(repo, issue, at_created, search)
         run["located"] = {k: resolved[k] for k in LOCATED_KEYS if k in resolved}
         s.output = run["located"]
-    with tracer.step("evidence", input=[dict(commit=r["commit"], checkpoint=r["checkpoint"], lines=r["lines"]) for r in resolved["evidence"]]) as s:
+    with tracer.step("fence.evidence", input=[dict(commit=r["commit"], checkpoint=r["checkpoint"], lines=r["lines"]) for r in resolved["evidence"]]) as s:
         excerpts = evidence.collect(repo, resolved)
         run["evidence"] = [e.to_dict() for e in excerpts]
         s.output = dict(excerpts=len(excerpts), chars=sum(len(e.text) for e in excerpts), sources=[f"{e.commit}:{e.source}" for e in excerpts])
     rulings: list[dict[str, str]] = []
     if use_memory:
-        with tracer.step("recall", input=dict(query=issue["title"])) as s:
+        with tracer.step("fence.recall", input=dict(query=issue["title"])) as s:
             try:
                 rulings = memory.recall(issue["title"])
             except memory.MemoryError_ as e:  # a missing brain must not stop the investigation
@@ -60,7 +60,7 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
                 s.fail(str(e))
             run["rulings"] = rulings
             s.output = rulings
-    with tracer.step("verdict", input=dict(model=cfg.model, excerpts=len(excerpts), rulings=len(rulings))) as s:
+    with tracer.step("fence.verdict", input=dict(model=cfg.model, excerpts=len(excerpts), rulings=len(rulings))) as s:
         made: list[LLMCall] = []
         try:
             verdict, made = classify(issue, resolved, excerpts, cfg.model, rulings=rulings)
@@ -77,7 +77,8 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
     if verdict.verdict == PRECEDENT:
         run["ruling"] = next(r for r in rulings if r["id"] == verdict.ruling_id)
     if run["outcome"] == "ask" and out_dir is not None:
-        with tracer.step("ask", input=dict(verdict=verdict.verdict)) as s:
+        with tracer.step("fence.ask", input=dict(verdict=verdict.verdict),
+                         metadata=dict(issue=issue["number"], verdict=verdict.verdict, outcome="ask", located_by=resolved.get("located_by"))) as s:
             q = out_dir / "questions" / f"{issue['number']}.md"
             q.parent.mkdir(parents=True, exist_ok=True)
             q.write_text(memory.question_markdown(issue, run))
@@ -86,9 +87,18 @@ def investigate_steps(issue: dict[str, Any], cfg: config.Config, tracer: trace.T
     return resolved, verdict
 
 
+def root_metadata(run: dict[str, Any], cfg: config.Config) -> dict[str, Any]:
+    """Flat fields on the root span, so Neatlogs conditional detections can read them without parsing text."""
+    v, loc = run.get("verdict") or {}, run.get("located") or {}
+    meta = dict(issue=run["issue"], verdict=v.get("verdict"), confidence=v.get("confidence"), outcome=run.get("outcome"), located_by=loc.get("located_by"),
+                cost_usd=run["cost"]["usd"], llm_calls=run["cost"]["llm_calls"], model=cfg.model, mode=run.get("mode"), action=run.get("action"),
+                attempts=len(run["attempts"]) if "attempts" in run else None, error=bool(run.get("error")))
+    return {k: val for k, val in meta.items() if val is not None}
+
+
 def finish(run: dict[str, Any], tracer: trace.Tracer, cfg: config.Config, out_path: Path, send_trace: bool) -> None:
     """Post the trace once and write the run file."""
-    tracer.root.extra["metadata"] = dict(cost_usd=run["cost"]["usd"], model=cfg.model)
+    tracer.root.extra["metadata"] = root_metadata(run, cfg)
     if send_trace:
         if not cfg.neatlogs_api_key:
             run["trace_error"] = "NEATLOGS_API_KEY is not set"
@@ -150,13 +160,13 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
         scratch.mkdir(parents=True, exist_ok=True)
         base = scratch / "base.json"
         packages: list[str] | None = None
-        with tracer.step("work_copy", input=dict(dest=f"work/{name}")) as s:
+        with tracer.step("fence.work_copy", input=dict(dest=f"work/{name}")) as s:
             work = fix.make_work_copy(cfg.target, work_root / name)
             run["work_copy"] = f"work/{name}"
             s.output = dict(head=fix.git(work, "rev-parse", "HEAD").strip()[:10])
         if span_list:
             packages = fix.packages_for_spans(span_list)
-            with tracer.step("test_baseline", input=dict(test=fix.test_command(packages))) as s:
+            with tracer.step("fence.test_baseline", input=dict(test=fix.test_command(packages))) as s:
                 rec = fix.run_verify(work, fix.test_command(packages), "pre-edit baseline", record=base)
                 run["baseline"] = rec.to_dict()
                 s.output = rec.text
@@ -169,7 +179,7 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
         for attempt in (1, 2):
             rec: dict[str, Any] = dict(attempt=attempt)
             run["attempts"].append(rec)
-            with tracer.step(f"worker_{attempt}", input=dict(model=cfg.model, cwd=run["work_copy"])) as s:
+            with tracer.step("fence.worker", input=dict(model=cfg.model, cwd=run["work_copy"], attempt=attempt), metadata=dict(issue=number, attempt=attempt)) as s:
                 call = fix.run_worker(prompt, cfg.model, work)
                 calls.append(call)
                 run["cost"] = _cost(calls)
@@ -178,7 +188,8 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
                 s.output = call.output
                 if call.error and not fix.changed_files(work):
                     raise fix.FixError(f"worker failed: {call.error}")
-            with tracer.step(f"verify_{attempt}") as s:
+            verify_meta: dict[str, Any] = dict(issue=number, attempt=attempt, mode=mode)
+            with tracer.step("fence.verify", metadata=verify_meta) as s:
                 if packages is None:  # baseline mode: the packages are only known from what the worker touched
                     packages = fix.go_packages(fix.changed_files(work))
                     if packages:
@@ -192,6 +203,7 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
                 s.output = dict(ok=verification.ok, reason=verification.reason, code=verification.code, repro_tests=verification.repro_tests,
                                 newly_passing=verification.newly_passing, regressions=verification.regressions,
                                 reports=[r.text for r in verification.runs])
+                verify_meta.update(ok=verification.ok, reason=verification.code or ("verified" if verification.ok else "rejected"))
                 if not verification.ok:
                     s.fail(verification.reason)
             run["files_changed"] = verification.files_changed
@@ -200,14 +212,14 @@ def fix_issue(number: int, cfg: config.Config, issues_path: Path, out_dir: Path,
             if attempt == 1:
                 explained = ""
                 if verification.code != fix.EXISTING_TEST_MODIFIED:  # that rejection carries its own diff; there is no test failure to explain
-                    with tracer.step("explain_failure") as s:
+                    with tracer.step("fence.explain_failure", metadata=dict(issue=number, attempt=attempt)) as s:
                         explained = fix.explain_failure(work, packages) if packages else "no Go files were changed"
                         rec["explained_failure"] = explained
                         s.output = explained
                 prompt = fix.retry_prompt(first, verification, explained)
 
         if verification and verification.ok:
-            with tracer.step("commit") as s:
+            with tracer.step("fence.commit") as s:
                 run["commit"] = fix.commit_fix(work, issue, verification)
                 s.output = run["commit"]
             run["action"] = "fixed"
@@ -268,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--fresh", action="store_true", help="re-run issues that already have a result in runs/eval/")
     ev.add_argument("--no-trace", action="store_true")
     ev.add_argument("--open", action="store_true", help="scan open issues at HEAD instead (no comparison); writes runs/scan.json")
+    sub.add_parser("detections", help="print the Neatlogs detection configs to create once in the dashboard")
     cp = sub.add_parser("compare", help="assemble runs/compare.json from the fix runs of both modes")
     cp.add_argument("--issues", required=True, help="comma-separated issue numbers")
     cp.add_argument("--out", type=Path, default=config.ROOT / "runs")
@@ -275,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
     fx.add_argument("--baseline", action="store_true", help="skip investigation and send the issue straight to the worker")
     fx.add_argument("--work", type=Path, default=config.ROOT / "work", help="directory for work copies")
     a = ap.parse_args(argv)
+    if a.cmd == "detections":
+        print(json.dumps(detections.configs(), indent=1))
+        print("\n# With a login that may create detections:", file=sys.stderr)
+        for c in detections.create_commands():
+            print(c, file=sys.stderr)
+        return 0
     cfg = config.load()
 
     if a.cmd == "compare":

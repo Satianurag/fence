@@ -97,9 +97,12 @@ class Tracer:
         self._t0 = time.monotonic()
 
     @contextmanager
-    def step(self, name: str, input: Any = None) -> Iterator[Span]:
-        """A TOOL span around one pipeline step. An exception marks it ERROR and is re-raised."""
+    def step(self, name: str, input: Any = None, metadata: dict[str, Any] | None = None) -> Iterator[Span]:
+        """A TOOL span around one pipeline step. An exception marks it ERROR and is re-raised.
+        `metadata` (which the caller may keep filling inside the block) is what detection rules can read."""
         span = Span(name=name, kind="TOOL", input=input, extra=dict(tool_name=name))
+        if metadata is not None:
+            span.extra["metadata"] = metadata
         self.root.children.append(span)
         t0 = time.monotonic()
         try:

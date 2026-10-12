@@ -33,9 +33,13 @@ class Config:
     neatlogs_api_key: str | None = field(repr=False)  # repr=False keeps the key out of logs and tracebacks
 
 
-def load(env_file: Path | None = None) -> Config:
-    """The process environment wins over the .env file."""
+def load(env_file: Path | None = None, real_runs: bool = True) -> Config:
+    """The process environment wins over the .env file.
+    Real runs (investigate, fix, eval) go to the project named by NEATLOGS_RUNS_PROJECT with NEATLOGS_RUNS_API_KEY
+    when both are set, so they stay apart from smoke tests and probes in the default project."""
     env = {**read_env_file(env_file or ROOT / ".env"), **os.environ}
+    if real_runs and env.get("NEATLOGS_RUNS_API_KEY") and env.get("NEATLOGS_RUNS_PROJECT"):
+        env = {**env, "NEATLOGS_API_KEY": env["NEATLOGS_RUNS_API_KEY"], "NEATLOGS_PROJECT": env["NEATLOGS_RUNS_PROJECT"]}
     return Config(
         target=env.get("FENCE_TARGET") or None,
         model=env.get("FENCE_MODEL") or "sonnet",
