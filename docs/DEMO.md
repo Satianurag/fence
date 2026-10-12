@@ -2,7 +2,7 @@
 
 A script to read aloud while screen-recording. Times are the budget per step; the whole thing is 180 seconds.
 Everything shown comes from files in this repo or from the Neatlogs project "fence". Have three things open
-before recording: a terminal in the repo root, the dashboard (`python3 -m http.server --directory ui 8000`),
+before recording: a terminal in the repo root, the dashboard (`python3 -m http.server --directory ui 8010`),
 and Neatlogs on the "fence" project.
 
 Run times, so you know what can be live: an ask takes about 9 seconds, a fix about 45 seconds, a baseline on a
@@ -109,8 +109,8 @@ Say about cost, if asked: the dollar figures in the README are Claude Code's own
 
 ## 6. The dashboard (2:20 to 2:50)
 
-- `http://localhost:8000/?issue=2256` : the replay walks the evidence commits and ends on MISTAKE, FIXED.
-- `http://localhost:8000/?issue=2033` : the same replay ends on DECISION, ASKED A HUMAN, with the quote.
+- `http://localhost:8010/?issue=2256` : the replay walks the evidence commits and ends on MISTAKE, FIXED.
+- `http://localhost:8010/?issue=2033` : the same replay ends on DECISION, ASKED A HUMAN, with the quote.
 - Point at the FENCE VS BASELINE table and the EVAL panel.
 
 Say: "Same picture for every issue: the commits behind the code, which of them have a checkpoint, and what Fence did.
@@ -118,13 +118,17 @@ And the honest numbers. On plain bugs the investigation costs a few cents more a
 with maintainers 40 times out of 47, and a rule that always says mistake would score 45. The value is in the
 decision cases."
 
-Open the dashboard and click through once before recording. Its layout was not checked in a browser by the session
-that built it.
+Record at 1600x900 or wider; that is the size the layout was checked at. Serve it with
+`python3 -m http.server --directory ui 8010`.
 
 ## 7. The plan (2:50 to 3:00)
 
-Placeholder until the cfo.ai plan exists. Say: "Measured cost is 2 cents to ask and 13 cents to fix. The cfo.ai plan,
-built from these measured costs, goes here."
+Open https://app.cfo.ai/s/xcdEIupLOCiVDXSI (the "Fence plan (v2)" page). Show the drivers table, then the monthly
+table, then switch the scenario to "Fence plan: price 0.50 (v2)".
+
+Say: "The plan is a live model in cfo.ai. The cost rows are measured: 2 cents to ask, 12 cents to fix, about 10 cents
+blended per issue. Price, customers and fixed costs are assumptions and are labelled as such. At one dollar an issue
+it breaks even at about 220 issues a month; at fifty cents, about 500."
 
 ## If something goes wrong on camera
 

@@ -125,7 +125,29 @@ Limits: the first detection is only correct because `fence.verify` is the only s
 
 ### cfo.ai
 
-Placeholder. The plan (what Fence costs per issue at volume, and when the investigation pays for itself) will be built from the measured costs in `runs/` and added here. Nothing in this section exists yet.
+The plan is a live model in cfo.ai, built through its MCP server: [Fence plan](https://app.cfo.ai/s/xcdEIupLOCiVDXSI) (read-only link). It has a drivers table, a 12-month unit-economics table whose rows are formulas over those drivers, and a second scenario at half the price.
+
+| Driver | Value | Basis |
+|---|---|---|
+| Cost per mistake issue (investigate + fix) | $0.119 | measured: mean of the four Fence runs in [runs/compare.json](runs/compare.json) |
+| Cost per decision or no-record issue (investigate + ask) | $0.024 | measured: mean of #2263 and #2033 |
+| Share mistake / decision / no record | 0.76 / 0.16 / 0.08 | measured: verdicts on 45 open issues, [runs/scan.json](runs/scan.json) |
+| Issues per repo per month | 35 | measured on one repo: 349 issues in about ten months |
+| Customer repos | 50, +5 a month | assumption |
+| Price per issue handled | $1.00 (scenario: $0.50) | assumption |
+| Fixed costs per month | $200 | assumption, no salaries |
+
+| | Month 1 (Nov 2026) | Month 12 (Oct 2027) | 12-month cumulative |
+|---|---|---|---|
+| Issues handled | 1,750 | 3,675 | |
+| Revenue at $1.00 | $1,750 | $3,675 | |
+| Variable cost | $168 | $354 | |
+| Net at $1.00 | $1,382 | $3,121 | $27,019 |
+| Net at $0.50 | $507 | $1,284 | $10,744 |
+
+Blended variable cost is $0.0962 per issue. Break-even is about 221 issues a month at $1.00 (roughly 7 repos) and 495 at $0.50 (roughly 15). Under these assumptions there is no burn, so runway is not the constraint; the price and the number of customers are.
+
+Limits: only the cost and share rows are measured, and each cost is one run per issue on issues picked for small test packages. Nobody has been asked what they would pay. The plan does not price what Fence is for, which is the decision issues it left alone; on plain mistakes the baseline was 23 to 37% cheaper.
 
 ## Run it
 
@@ -155,7 +177,7 @@ uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -e '.[dev]'
 .venv/bin/fence detections                    # the two Neatlogs detection configs
 ```
 
-Dashboard: `python3 -m http.server --directory ui 8000`, then open `http://localhost:8000/?issue=2256` (fixed) or `?issue=2263` (stopped and asked).
+Dashboard: `python3 -m http.server --directory ui 8010`, then open `http://localhost:8010/?issue=2256` (fixed) or `?issue=2263` (stopped and asked).
 
 **What it costs** (Claude Code's own reported cost, model `claude-sonnet-5-5`):
 
@@ -179,7 +201,7 @@ Dashboard: `python3 -m http.server --directory ui 8000`, then open `http://local
 - **The verdict is one model call and is not stable.** See the eval limits above and [runs/decisions.md](runs/decisions.md).
 - **The readings in decisions.md are the builder's own**, not an independent review.
 - **Recall is not selective.** With one ruling stored, Brain returns it for every query; whether it applies is left to the verdict model.
-- **The dashboard layout has not been checked in a browser** by the session that wrote it.
+- **The dashboard was checked in a browser once**, at 1600x900, for issues #2256 and #2033: it renders with no console errors. Other sizes and other issues were not checked.
 - **Traces live in two Neatlogs projects.** The fix, ask and precedent runs linked above are in the project "fence". The 52-issue eval, the 45-issue open scan and the #2274 baseline retry are in the first project, "Anurag's project", next to smoke tests and about a dozen probe traces from finding the ingest size limit.
 - **One of the two detections is not usable yet** (see Neatlogs above), and Neatlogs' cost figures do not match Claude Code's.
 - **There is no CLAUDE.md.** Working notes for agents in this repo have not been written.
