@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4QPP3ZHDDDVDD8611V2AFCV",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "ui/build_data.py",
+    "ui/data/fence.json",
+    "ui/index.html",
+    "ui/main.js",
+    "ui/styles.css"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 21358,
+    "cache_read_tokens": 2609035,
+    "output_tokens": 15351,
+    "api_call_count": 7
+  }
+}
