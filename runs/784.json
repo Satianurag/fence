@@ -1,0 +1,32 @@
+{
+ "issue": 784,
+ "title": "Only first commit per session gets Entire-Checkpoint trailer; subsequent commits silently skipped",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "no_record",
+  "confidence": 1.0,
+  "rationale": "The issue names no file or symbol the resolver could locate, so there are no lines to trace to a checkpoint.",
+  "quotes": []
+ },
+ "located": {
+  "rev": "61a9c084b4",
+  "files_named": 0,
+  "symbols_named": 3,
+  "spans": 0,
+  "span_list": [],
+  "lines": 0,
+  "lines_linked": 0,
+  "checkpoints": 0
+ },
+ "evidence": [],
+ "cost": {
+  "usd": 0,
+  "llm_calls": 0,
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 0
+ },
+ "trace_id": "c69b437247d6a5a450d1261d60936dc7",
+ "error": null
+}
