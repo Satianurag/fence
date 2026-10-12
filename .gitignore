@@ -9,3 +9,4 @@ __pycache__/
 .entire/settings.local.json
 *.egg-info/
 .pytest_cache/
+work/
