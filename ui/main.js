@@ -244,7 +244,7 @@ const D = await fetch("data/fence.json").then((r) => r.json());
 const QUERY = new URLSearchParams(location.search);
 const REPLAY = D.replays[QUERY.get("issue")] || D.replays[String(D.issue.number)];
 Object.assign(D, { issue: REPLAY.issue, path: REPLAY.path, spans: REPLAY.spans, agents: REPLAY.agents });
-const RUN = REPLAY.fence, BASE = REPLAY.baseline;
+const RUN = REPLAY.fence;
 const [heightBuf, coverBuf] = await Promise.all(["data/fence-terrain.bin", "data/fence-cover.bin"].map((f) => fetch(f).then((r) => r.arrayBuffer())));
 const HEIGHTS = new Int16Array(heightBuf), COVER = new Uint8Array(coverBuf);
 const { w: GW, h: GH } = D.grid;
@@ -349,8 +349,8 @@ function scene3d(canvas, hudCanvas) {
       if (camera.idle > 0) { baseAz = camera.az - 0.3 * Math.sin(t * 0.12); camera.idle = -10; }
       camera.az = baseAz + 0.3 * Math.sin(t * 0.12);
     }
-    if (!camera.zoomed) camera.r = clamp(((xmax - xmin) / 2 + 8) / (Math.tan(19 * Math.PI / 180) * (w / h)), 30, 70);
-    const target = [0, 1.7, 0];
+    if (!camera.zoomed) camera.r = clamp(((xmax - xmin) / 2 + 6) / (Math.tan(19 * Math.PI / 180) * (w / h)), 22, 70);
+    const target = [0, 2.2, 0];
     const eye = [target[0] + camera.r * Math.cos(camera.el) * Math.sin(camera.az), target[1] + camera.r * Math.sin(camera.el), target[2] + camera.r * Math.cos(camera.el) * Math.cos(camera.az)];
     const proj = perspective(38 * Math.PI / 180, w / h, 0.5, 260);
     const vp = mul(proj, lookAt(eye, target));
@@ -703,27 +703,6 @@ function decisionsList() {
   $("results").innerHTML = col(`CLOSED · ${closed.length}`, closed) + col(`OPEN · ${open.length}`, open);
 }
 
-// outcome box: what Fence did with this issue, always on screen
-function outcomeBox() {
-  const el = $("outcome");
-  if (!RUN) { el.innerHTML = `<small>NO FIX RUN RECORDED FOR THIS ISSUE</small>`; return; }
-  const head = `<div class="o-head ${RUN.action}"><b>${(RUN.verdict || "—").toUpperCase()}</b><span>→ ${RUN.action === "fixed" ? "FENCE FIXED IT" : RUN.action === "not_fixed" ? "FENCE STOPPED AND ASKED" : (ACTION[RUN.action] || "")}</span><em>CONF ${RUN.confidence?.toFixed(2) ?? "—"}</em></div>`;
-  let body;
-  if (RUN.action === "fixed") {
-    body = `<p>${escapeHtml(RUN.rationale)}</p>` +
-      `<dl><dt>WORKER</dt><dd>${RUN.files.length} FILES · ${RUN.attempts} ATTEMPT${RUN.attempts > 1 ? "S" : ""}</dd>` +
-      `<dt>VERIFIED BY FENCE</dt><dd>${escapeHtml(RUN.verification.toUpperCase())}</dd>` +
-      `<dt>NEW TEST</dt><dd>${escapeHtml(RUN.tests[0] || "—")}</dd>` +
-      `<dt>COMMIT</dt><dd>${RUN.commit} · ${escapeHtml(RUN.branch || "")} · WORK COPY ONLY</dd></dl>`;
-  } else {
-    const q = RUN.quotes[0];
-    body = (q ? `<blockquote>${escapeHtml(q.quote)}</blockquote><small class="src">${q.source.replace("_", " ").toUpperCase()} · COMMIT ${q.commit} · CHECKPOINT ${q.checkpoint}</small>` : `<p>${escapeHtml(RUN.rationale)}</p>`) +
-      `<dl><dt>FENCE</dt><dd>CHANGED NO CODE · WROTE ${escapeHtml((RUN.question || "A QUESTION").toUpperCase())}</dd>` +
-      (BASE ? `<dt>BASELINE</dt><dd class="warn">NOT ASKED · ${ACTION[BASE.action] || ""} · CHANGED ${BASE.files.length} FILES</dd>` : "") + `</dl>`;
-  }
-  el.innerHTML = head + body + `<div class="o-foot"><span>${money(RUN.cost)} · ${secs(RUN.duration)}</span><span>${BASE ? `BASELINE ${money(BASE.cost)} · ${secs(BASE.duration)}` : ""}</span><span>TRACE ${(RUN.trace || "").slice(0, 8)}</span></div>`;
-}
-
 function issueSelector() {
   const sel = $("issue-select");
   sel.innerHTML = Object.values(D.replays).map((r) => `<option value="${r.issue.number}"${r.issue.number === D.issue.number ? " selected" : ""}>#${r.issue.number} · ${(r.fence?.verdict || "—").toUpperCase()} → ${ACTION[r.fence?.action] || "—"}</option>`).join("");
@@ -796,18 +775,6 @@ function logLine(text, warn = false) {
   const type = () => { span.textContent = text.slice(0, ++k) + (k < text.length ? "▌" : ""); if (k < text.length) setTimeout(type, 12); };
   type();
 }
-function setCard(p, i) {
-  scramble($("c-id"), `E${i + 1}`);
-  scramble($("c-commit"), p.commit);
-  $("c-date").textContent = p.date;
-  $("c-subj").textContent = p.subject;
-  $("c-file").textContent = p.file;
-  $("c-lines").textContent = `${p.lines} LN TRACED`;
-  const ck = $("c-ck");
-  ck.textContent = p.checkpoint ? `CHECKPOINT ${p.checkpoint} · ${p.agent.toUpperCase()}` : "NO CHECKPOINT ON RECORD · AUTHOR UNKNOWN TO ENTIRE";
-  ck.classList.toggle("none", !p.checkpoint);
-  $("c-prompt").textContent = p.prompt || "No prompt recorded for this commit.";
-}
 let lastStep = -1, lastDone = false, lastKpi = 0;
 function syncDom(t, rp) {
   if (rp.i < lastStep) { logEl.innerHTML = ""; lastStep = -1; lastDone = false; logLine(`ISSUE #${D.issue.number} OPENED · ${D.issue.created}`); }
@@ -816,7 +783,6 @@ function syncDom(t, rp) {
       const p = PATH[++lastStep];
       logLine(`E${lastStep + 1} ${p.commit} · ${p.file.split("/").pop()} · ${p.lines} LN${p.checkpoint ? ` · CK ${p.checkpoint.slice(0, 8)} ${p.agent.toUpperCase()}` : " · NO CHECKPOINT"}`, !!p.checkpoint);
     }
-    setCard(PATH[rp.i], rp.i);
   }
   if (rp.done && !lastDone) {
     lastDone = true;
@@ -852,7 +818,7 @@ function syncDom(t, rp) {
 const scene = scene3d($("scene"), $("scene-hud"));
 const sphere = globe($("globe"), $("globe-hud"), $("globe-readout"));
 const panels = [ringPanel($("ring")), profilePanel($("profile")), cumulativePanel($("cumulative"))];
-evalTable(); compareTable(); decisionsList(); outcomeBox(); issueSelector(); issuesList();
+evalTable(); compareTable(); decisionsList(); issueSelector(); issuesList();
 const tickChrome = chrome();
 logLine(`ISSUE #${D.issue.number} OPENED · ${D.issue.created}`);
 
