@@ -1,0 +1,20 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Milestone 3 accepted. Keep the #2160 ruling in the brain; it is real evidence. The probe brain reset is fine.
+
+## Milestone 4: detection, real traces from application code, clean evidence
+
+### 1. Neatlogs detection that fires on Fence's own runs
+Neatlogs detections cannot be created with the read-only CLI login, so do not attempt creation yourself. Instead: add `fence detections` (prints the exact JSON configs for two conditional detections to create in the dashboard): (a) "Fence asked a human" = TOOL or CHAIN span with status OK whose metadata verdict is decision or no_record (fires when Fence stops and asks); (b) "Fence fix failed verification" = span status ERROR on a `fence.verify` span, or an `existing_test_modified` reason. Use the field names the built-in "Execution Failed" detection uses (read it with `neatlogs detections get <id>`) so ours match the trace shape. Put verdict, outcome, issue number, located_by, cost and attempts into the root span's metadata (not only input text) in trace.py so conditional rules can read them, and re-run two issues to confirm the fields appear via `neatlogs traces get`. Record the config JSON in docs/neatlogs-detections.json and say in the README these two must be created once in the dashboard by the project owner.
+
+### 2. Custom LLM span with real model cost
+The verdict runs through `claude -p`, so the SDK's wrap() never sees the call. In trace.py, emit the verdict LLM span with model = the resolved model id from the claude JSON (e.g. claude-sonnet-5-5), provider anthropic, tokens {prompt: uncached input + cache read + cache write, completion: output}, and attributes neatlogs.llm.token_count.cache_read / cache_write so Neatlogs computes cost. Verify with `neatlogs traces spans list` that the LLM span of a fresh #2256 run shows nonzero costUsd close to Claude Code's own total_cost_usd for that call (state both numbers and the gap). If the HTTP endpoint drops the LLM kind or cost, say so and record what was tried.
+
+### 3. Separate project for real runs
+The current project (b02bc6ba…) holds smoke tests, doctor probes and ~120 traces from tonight including WAF probes. Add NEATLOGS_PROJECT / NEATLOGS_API_KEY override support so real runs can go to a clean project: read NEATLOGS_RUNS_API_KEY and NEATLOGS_RUNS_PROJECT from .env when present and prefer them for `fence investigate/fix/eval` (not for smoke tests). Do not create the project yourself and do not print keys. Add a line to the README "What is not real" noting which Neatlogs project the linked traces live in.
+
+### 4. Real runs: before/after and eval, sequentially, with cost control
+Do not rerun the full 52-issue eval. Run: (a) `fence fix --issue N` and `fence fix --issue N --baseline` on #2256, #2274, #2686, #1870 fresh (one each, sequential, cap budget at $3 per attempt as now) so compare.json comes from post-change code and carries Neatlogs trace ids with correct costs; (b) one decision issue in both modes to show the behavioural difference — pick the open issue whose title most clearly describes behaviour a maintainer might have chosen (from data/cli_issues.json titles, not by tuning anything), record why you picked it; (c) the memory demo: `fence investigate` on a second issue that should hit `precedent` from the #2160 ruling already in the brain; if none of the open issues fits, say so rather than forcing it. Rebuild ui/data/fence.json with `python ui/build_data.py` using real FENCE_TARGET clone, runs/, and the checkpoints already fetched; if cli_issues.json is a day old that is fine, do not refetch unless trivial.
+
+### 5. Report format
+After each numbered part: one short status (what works, what does not, numbers, trace ids, commit hashes). At the very end: total spend this session from all claude -p JSON costs, and a list of every artifact left outside the repo (Neatlogs traces count, brain facts, work/ clones and their branches). Never print key values. Do not push work/ or .env. Do not open PRs upstream. Subagents on Haiku only.
+</cross-session-message>
