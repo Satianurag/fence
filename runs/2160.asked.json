@@ -5,7 +5,7 @@
  "verdict": {
   "verdict": "no_record",
   "confidence": 0.9,
-  "rationale": "The issue is a feature request to add Goose and Qwen Code agent integrations. The evidence covers unrelated code: vendoring the git remote helper, the noun-group command restructure, and the agent selector menu. None of it concerns agent integrations for these two tools, so no usable record exists.",
+  "rationale": "The issue is a feature request to add Goose and Qwen Code agent integrations. The evidence covers unrelated code: vendoring the git remote helper, the noun-group command restructure, and the agent selector. None of it concerns the absence of Goose or Qwen Code support, so the matched functions are unrelated to the issue.",
   "quotes": [],
   "ruling_id": null
  },
@@ -99,15 +99,16 @@
   }
  ],
  "cost": {
-  "usd": 0.025924,
+  "usd": 0.023405,
   "llm_calls": 1,
   "input_tokens": 2,
-  "output_tokens": 130,
-  "cache_read_tokens": 0,
-  "cache_write_tokens": 6155
+  "output_tokens": 141,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 5481
  },
- "trace_id": "f24eb51f5ec614f8322b2299205f707f",
+ "trace_id": "6cfd5a1c9e25f045df08b48561660475",
  "error": null,
  "question": "runs/questions/2160.md",
- "trace_spans": 8
+ "trace_spans": 8,
+ "trace_project": "fence"
 }

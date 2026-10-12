@@ -4,8 +4,8 @@
  "model": "sonnet",
  "verdict": {
   "verdict": "precedent",
-  "confidence": 0.9,
-  "rationale": "The issue asks for a new built-in agent integration (Kilo Code) in the CLI. This is the same kind of request as the ruling on #2160, which says new agents go through the external agent path (standalone entire-agent-<name> binaries) before any move into the CLI tree. The evidence excerpts cover the git remote helper vendoring and have no bearing on this request.",
+  "confidence": 0.85,
+  "rationale": "The issue asks for a new native agent integration (Kilo Code) in the CLI, the same kind of request as the ruling on #2160, which said new agents go through the external agent path first (standalone entire-agent-<name> binaries) rather than being added to the CLI directly. The evidence concerns the git remote helper vendoring, unrelated to this request.",
   "quotes": [],
   "ruling_id": "fact:ac9834cf8740308a0f8fdee6"
  },
@@ -62,18 +62,19 @@
   }
  ],
  "cost": {
-  "usd": 0.015699,
+  "usd": 0.014481,
   "llm_calls": 1,
   "input_tokens": 2,
-  "output_tokens": 296,
+  "output_tokens": 175,
   "cache_read_tokens": 666,
-  "cache_write_tokens": 3167
+  "cache_write_tokens": 3165
  },
- "trace_id": "b19f55e57702ac722e99980863bf5220",
+ "trace_id": "b5629bbe9652f5f1cd3f2dc93795d2dc",
  "error": null,
  "ruling": {
   "id": "fact:ac9834cf8740308a0f8fdee6",
   "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
  },
- "trace_spans": 7
+ "trace_spans": 7,
+ "trace_project": "fence"
 }

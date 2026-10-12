@@ -5,9 +5,17 @@
  "verdict": {
   "verdict": "mistake",
   "confidence": 0.85,
-  "rationale": "The evidence covers moving the trailer logic into the trailers package and deduplicating it, but never mentions how indented trailer-shaped lines are treated. The looser TrimSpace-based grammar in the writer was carried along by refactors, not chosen as a decision.",
-  "quotes": []
+  "rationale": "The evidence covers moving and deduplicating the trailer-appending code (attach.go to the trailers package, and delegation from addCheckpointTrailer). Nothing in it discusses how indented trailer-shaped lines or continuation lines should be treated, so the looser TrimSpace grammar was never a chosen behaviour. The ruling about agent integrations is unrelated.",
+  "quotes": [],
+  "ruling_id": null
  },
+ "outcome": "fix",
+ "rulings": [
+  {
+   "id": "fact:ac9834cf8740308a0f8fdee6",
+   "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
+  }
+ ],
  "located": {
   "rev": "HEAD",
   "located_by": "named",
@@ -150,14 +158,14 @@
   }
  ],
  "cost": {
-  "usd": 0.138093,
+  "usd": 0.132417,
   "llm_calls": 2,
-  "input_tokens": 16,
-  "output_tokens": 3877,
-  "cache_read_tokens": 94354,
-  "cache_write_tokens": 22464
+  "input_tokens": 12,
+  "output_tokens": 4160,
+  "cache_read_tokens": 60648,
+  "cache_write_tokens": 21182
  },
- "trace_id": "dc90932fbe6e2d57187313df187b5a36",
+ "trace_id": "abe01d2622eba06e3ef75f409a37b8b7",
  "error": null,
  "mode": "fence",
  "action": "fixed",
@@ -165,25 +173,27 @@
   {
    "attempt": 1,
    "worker": {
-    "report": "`AppendCheckpointTrailer` now starts a new paragraph when the message ends in an indented pseudo-trailer. It no longer glues the new trailer onto that paragraph. `go test ./cmd/entire/cli/trailers/ -run 'TestAppendCheckpointTrailer'` passes. That pattern also runs the existing `TestAppendCheckpointTrailer` cases, so the old behaviours still pass. I did not run the rest of the suite.\n\nThe new test failed on the old code for the space-indented case, the tab-indented case and the continuation-line case.\n\nI did not extract a shared `isTrailerBlock` out of `finalTrailerBlock`, as the issue proposes. In this tree `finalTrailerBlock` still trims whitespace and has no continuation handling, so it isn't the stricter reader the issue describes. I added `isTrailerBlock` for the writer only and left the reader alone, to keep the change small. The two now disagree in the other direction: the reader still accepts an indented checkpoint line that the writer now treats as plain body text.\n\n`appendTrailerLine` now collects the final paragraph as raw lines, still skipping comment lines. It joins the new trailer onto that paragraph only if a blank line separates it from the content above and `isTrailerBlock` holds. `isTrailerBlock` needs at least one real trailer line, and every other line must be an indented continuation of a trailer before it.\n\nThe continuation case from the issue (`Signed-off-by: ...` followed by ` continuation text`) now stays one block, with no blank line inserted.\n\nTest name: `TestAppendCheckpointTrailer_IndentedPseudoTrailer`\nFiles changed: `cmd/entire/cli/trailers/trailers.go`, `cmd/entire/cli/trailers/append_indented_test.go` (new)",
+    "report": "`AppendCheckpointTrailer` now starts a new trailer paragraph when the message ends in an indented checkpoint-shaped line. The new test failed before the change and passes after it.\n\nI ran only the narrow test, so the other trailer tests (including the existing `TestAppendCheckpointTrailer`) haven't been run against the change.\n\nThe fix is in `appendTrailerLine`. It now collects the final non-comment paragraph as raw lines. It joins the new trailer onto that paragraph only if it passes a new `isTrailerBlock` check and a blank line separates it from the content above. `isTrailerBlock` requires at least one real trailer line, and every line must be a trailer or an indented continuation of a preceding trailer.\n\nThe test covers three cases:\n- **Space-indented:** the new trailer goes in its own paragraph, after a blank line.\n- **Tab-indented:** same result.\n- **Continuation line:** a `Signed-off-by:` block ending in an indented continuation now has the trailer joined directly, with no blank line splitting the block.\n\nThis repo's `finalTrailerBlock` is still the older version, without the strict final-block parsers from #2253. I left it alone and put `isTrailerBlock` next to the writer rather than sharing it with the reader. As a result, the writer and reader still don't share one grammar here.\n\nTest name: `TestAppendTrailerLine_IndentedPseudoTrailer`\nFiles changed: `cmd/entire/cli/trailers/trailers.go`, `cmd/entire/cli/trailers/append_indented_test.go` (new)",
     "error": null,
-    "cost_usd": 0.10178140000000001,
-    "duration_ms": 33713
+    "cost_usd": 0.0966522,
+    "duration_ms": 29637
    },
    "verification": {
     "ok": true,
     "reason": "4 test(s) newly passing, no regressions",
+    "code": null,
+    "existing_test_diff": "",
     "repro_tests": [
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer",
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line",
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line",
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line"
+     "TestAppendTrailerLine_IndentedPseudoTrailer",
+     "TestAppendTrailerLine_IndentedPseudoTrailer/space_indent",
+     "TestAppendTrailerLine_IndentedPseudoTrailer/tab_indent",
+     "TestAppendTrailerLine_IndentedPseudoTrailer/trailer_with_continuation"
     ],
     "newly_passing": [
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer",
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line",
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line",
-     "TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line"
+     "TestAppendTrailerLine_IndentedPseudoTrailer",
+     "TestAppendTrailerLine_IndentedPseudoTrailer/space_indent",
+     "TestAppendTrailerLine_IndentedPseudoTrailer/tab_indent",
+     "TestAppendTrailerLine_IndentedPseudoTrailer/trailer_with_continuation"
     ],
     "regressions": [],
     "files_changed": [
@@ -196,7 +206,7 @@
       "command": "entire graph verify --test go test -v ./cmd/entire/cli/trailers/ ...",
       "exit_code": 0,
       "text": "BASELINE RECORDED: <baseline> (go test; 69 passing, 4 failing, exit 1)",
-      "duration_ms": 340,
+      "duration_ms": 353,
       "newly_passing": [],
       "newly_failing": [],
       "verdict": ""
@@ -205,13 +215,13 @@
       "purpose": "green vs red: tests fixed by the change",
       "command": "entire graph verify --test go test -v ./cmd/entire/cli/trailers/ ...",
       "exit_code": 0,
-      "text": "NEWLY PASSING (4): TestAppendCheckpointTrailer_IndentedPseudoTrailer, TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line, TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line, TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line\nVERDICT: PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed.",
-      "duration_ms": 342,
+      "text": "NEWLY PASSING (4): TestAppendTrailerLine_IndentedPseudoTrailer, TestAppendTrailerLine_IndentedPseudoTrailer/space_indent, TestAppendTrailerLine_IndentedPseudoTrailer/tab_indent, TestAppendTrailerLine_IndentedPseudoTrailer/trailer_with_continuation\nVERDICT: PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed.",
+      "duration_ms": 336,
       "newly_passing": [
-       "TestAppendCheckpointTrailer_IndentedPseudoTrailer",
-       "TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line",
-       "TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line",
-       "TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line"
+       "TestAppendTrailerLine_IndentedPseudoTrailer",
+       "TestAppendTrailerLine_IndentedPseudoTrailer/space_indent",
+       "TestAppendTrailerLine_IndentedPseudoTrailer/tab_indent",
+       "TestAppendTrailerLine_IndentedPseudoTrailer/trailer_with_continuation"
       ],
       "newly_failing": [],
       "verdict": "PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed."
@@ -221,7 +231,7 @@
       "command": "entire graph verify --test go test -v ./cmd/entire/cli/trailers/ ...",
       "exit_code": 0,
       "text": "VERDICT: NO EFFECT — the target tests behave exactly as before your edit.",
-      "duration_ms": 163,
+      "duration_ms": 146,
       "newly_passing": [],
       "newly_failing": [],
       "verdict": "NO EFFECT — the target tests behave exactly as before your edit."
@@ -233,28 +243,29 @@
  "work_copy": "work/2256",
  "commit": {
   "branch": "fence/issue-2256",
-  "commit": "4147ce849ccc50cdbad6d32a4e3274ed833e3b5c"
+  "commit": "74b4a0a21d753552c080426c0a30a5951d797599"
  },
  "files_changed": [
   "cmd/entire/cli/trailers/append_indented_test.go",
   "cmd/entire/cli/trailers/trailers.go"
  ],
  "tests_newly_passing": [
-  "TestAppendCheckpointTrailer_IndentedPseudoTrailer",
-  "TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line",
-  "TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line",
-  "TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line"
+  "TestAppendTrailerLine_IndentedPseudoTrailer",
+  "TestAppendTrailerLine_IndentedPseudoTrailer/space_indent",
+  "TestAppendTrailerLine_IndentedPseudoTrailer/tab_indent",
+  "TestAppendTrailerLine_IndentedPseudoTrailer/trailer_with_continuation"
  ],
  "baseline": {
   "purpose": "pre-edit baseline",
   "command": "entire graph verify --test go test -v ./cmd/entire/cli/trailers/ ...",
   "exit_code": 0,
   "text": "BASELINE RECORDED: <baseline> (go test; 69 passing, 0 failing, exit 0)",
-  "duration_ms": 717,
+  "duration_ms": 334,
   "newly_passing": [],
   "newly_failing": [],
   "verdict": ""
  },
- "duration_s": 48.5,
- "trace_spans": 12
+ "duration_s": 46.4,
+ "trace_spans": 13,
+ "trace_project": "fence"
 }

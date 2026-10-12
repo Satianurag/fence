@@ -4,8 +4,8 @@
  "model": "sonnet",
  "verdict": {
   "verdict": "mistake",
-  "confidence": 0.6,
-  "rationale": "The evidence covers the settings layering and IsSetUpAny, but nothing in it shows that a local disable was meant to stay per-worktree or that new worktrees should come back enabled. The commits concern os.Root anchoring, review profiles and the setup flow, so the reported behaviour was never discussed or chosen.",
+  "confidence": 0.8,
+  "rationale": "The evidence concerns settings refactors (os.Root anchoring, review profiles, IsSetUpAny added for setup flow) and never mentions how `enabled` in settings.local.json behaves across linked worktrees. The per-worktree scope of the local override was a side effect, not a recorded choice.",
   "quotes": [],
   "ruling_id": null
  },
@@ -98,14 +98,14 @@
   }
  ],
  "cost": {
-  "usd": 0.12145,
+  "usd": 0.126823,
   "llm_calls": 2,
   "input_tokens": 16,
-  "output_tokens": 3104,
-  "cache_read_tokens": 94904,
+  "output_tokens": 3649,
+  "cache_read_tokens": 94135,
   "cache_write_tokens": 20222
  },
- "trace_id": "74ef6e9ca12eaf9bd82e755d69f0194a",
+ "trace_id": "3f2861ad5a834f755a1c5f4922fb3218",
  "error": null,
  "mode": "fence",
  "action": "fixed",
@@ -113,19 +113,21 @@
   {
    "attempt": 1,
    "worker": {
-    "report": "I didn't confirm that the test fails on the original code. The stash-based check needed approval that wasn't granted, so I didn't run it. With the fix in place, the test passes.\n\nThe fix is limited to the settings layer. I did not change the `entire disable` and `entire enable` commands or `entire status --detailed`. Those live outside `./cmd/entire/cli/settings/`, so `entire disable` won't write the new `enabled` key into the clone preferences yet. That part still needs a follow-up.\n\nWhat I changed:\n- **Fix:** `ClonePreferences` now has an optional `enabled` field. `applyClonePreferences` applies it, so the order is `settings.json`, then clone preferences (`.git/entire/preferences.json`), then `settings.local.json`. The local file still wins.\n- **Test:** `TestLoad_ClonePreferencesEnabledAppliesAndLocalWins` covers two cases:\n  - A clone-wide `enabled: false` overrides the committed `enabled: true`.\n  - A local `enabled: true` still beats the clone-wide setting.\n\nI ran only the narrow test: `go test ./cmd/entire/cli/settings/ -run 'TestLoad_ClonePreferencesEnabledAppliesAndLocalWins'`.\n\nTest: `TestLoad_ClonePreferencesEnabledAppliesAndLocalWins`\nFiles: `cmd/entire/cli/settings/settings.go`, `cmd/entire/cli/settings/clone_enabled_test.go` (new)",
+    "report": "`Load` now reads `enabled` from clone preferences, so a clone-wide `false` overrides the committed `settings.json` in every worktree. Only the loading half of the issue's proposal is done. The test passes after the change, but I never ran it against the old code, so I haven't seen it fail.\n\n- **Fix:** `ClonePreferences` has a new `Enabled *bool` field, and `applyClonePreferences` applies it. The order is `settings.json`, then clone preferences, then `settings.local.json`, so the local file still wins.\n- **Not done:** `entire disable` and `entire enable` don't write the flag to `.git/entire/preferences.json` yet. Those commands, the \"already enabled\" check and the `status --detailed` line are outside `./cmd/entire/cli/settings/`, so I left them alone. Until they write the flag, nothing creates it except hand-editing the preferences file.\n\nTest added: `TestLoad_ClonePreferencesEnabledOverridesProject`\nFiles changed: `cmd/entire/cli/settings/settings.go`, `cmd/entire/cli/settings/clone_enabled_test.go` (new)",
     "error": null,
-    "cost_usd": 0.0929138,
-    "duration_ms": 28629
+    "cost_usd": 0.09836489999999999,
+    "duration_ms": 30087
    },
    "verification": {
     "ok": true,
     "reason": "1 test(s) newly passing, no regressions",
+    "code": null,
+    "existing_test_diff": "",
     "repro_tests": [
-     "TestLoad_ClonePreferencesEnabledAppliesAndLocalWins"
+     "TestLoad_ClonePreferencesEnabledOverridesProject"
     ],
     "newly_passing": [
-     "TestLoad_ClonePreferencesEnabledAppliesAndLocalWins"
+     "TestLoad_ClonePreferencesEnabledOverridesProject"
     ],
     "regressions": [],
     "files_changed": [
@@ -138,7 +140,7 @@
       "command": "entire graph verify --test go test -v ./cmd/entire/cli/settings/ ...",
       "exit_code": 0,
       "text": "BASELINE RECORDED: <baseline> (go test; 226 passing, 1 failing, exit 1)",
-      "duration_ms": 4058,
+      "duration_ms": 3674,
       "newly_passing": [],
       "newly_failing": [],
       "verdict": ""
@@ -147,10 +149,10 @@
       "purpose": "green vs red: tests fixed by the change",
       "command": "entire graph verify --test go test -v ./cmd/entire/cli/settings/ ...",
       "exit_code": 0,
-      "text": "NEWLY PASSING (1): TestLoad_ClonePreferencesEnabledAppliesAndLocalWins\nVERDICT: PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed.",
-      "duration_ms": 4403,
+      "text": "NEWLY PASSING (1): TestLoad_ClonePreferencesEnabledOverridesProject\nVERDICT: PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed.",
+      "duration_ms": 2928,
       "newly_passing": [
-       "TestLoad_ClonePreferencesEnabledAppliesAndLocalWins"
+       "TestLoad_ClonePreferencesEnabledOverridesProject"
       ],
       "newly_failing": [],
       "verdict": "PASS — the change fixes the target behavior and introduces no regressions. Verification is complete; no further test runs are needed."
@@ -160,7 +162,7 @@
       "command": "entire graph verify --test go test -v ./cmd/entire/cli/settings/ ...",
       "exit_code": 0,
       "text": "VERDICT: NO EFFECT — the target tests behave exactly as before your edit.",
-      "duration_ms": 577,
+      "duration_ms": 554,
       "newly_passing": [],
       "newly_failing": [],
       "verdict": "NO EFFECT — the target tests behave exactly as before your edit."
@@ -172,25 +174,26 @@
  "work_copy": "work/2274",
  "commit": {
   "branch": "fence/issue-2274",
-  "commit": "eefa74936ad24c838d95d88dab98cabf3f0efd2a"
+  "commit": "e00afe0826e3804fc5ed780c8024f340c6146f26"
  },
  "files_changed": [
   "cmd/entire/cli/settings/clone_enabled_test.go",
   "cmd/entire/cli/settings/settings.go"
  ],
  "tests_newly_passing": [
-  "TestLoad_ClonePreferencesEnabledAppliesAndLocalWins"
+  "TestLoad_ClonePreferencesEnabledOverridesProject"
  ],
  "baseline": {
   "purpose": "pre-edit baseline",
   "command": "entire graph verify --test go test -v ./cmd/entire/cli/settings/ ...",
   "exit_code": 0,
   "text": "BASELINE RECORDED: <baseline> (go test; 226 passing, 0 failing, exit 0)",
-  "duration_ms": 5324,
+  "duration_ms": 4670,
   "newly_passing": [],
   "newly_failing": [],
   "verdict": ""
  },
- "duration_s": 56.6,
- "trace_spans": 13
+ "duration_s": 56.0,
+ "trace_spans": 13,
+ "trace_project": "fence"
 }

@@ -1,0 +1,48 @@
+{
+ "issue": 1612,
+ "title": "Support Antigravity cli (Gemini's successor)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "precedent",
+  "confidence": 0.85,
+  "rationale": "The issue requests a new agent integration (Antigravity CLI) in the CLI. The prior ruling on #2160 states new agents should go through the external agent path (standalone entire-agent-<name> binaries) rather than being added directly to the CLI, which settles this same kind of request.",
+  "quotes": [],
+  "ruling_id": "fact:ac9834cf8740308a0f8fdee6"
+ },
+ "outcome": "precedent",
+ "rulings": [
+  {
+   "id": "fact:ac9834cf8740308a0f8fdee6",
+   "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
+  }
+ ],
+ "located": {
+  "rev": "f59fc87c51",
+  "located_by": null,
+  "search_error": null,
+  "files_named": 0,
+  "symbols_named": 0,
+  "spans": 0,
+  "span_list": [],
+  "lines": 0,
+  "lines_linked": 0,
+  "checkpoints": 0
+ },
+ "evidence": [],
+ "cost": {
+  "usd": 0.006475,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 156,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 1211
+ },
+ "trace_id": "cd1ee49fa76311506b7ebd4c0fb4038f",
+ "error": null,
+ "ruling": {
+  "id": "fact:ac9834cf8740308a0f8fdee6",
+  "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
+ },
+ "trace_spans": 7,
+ "trace_project": "fence"
+}

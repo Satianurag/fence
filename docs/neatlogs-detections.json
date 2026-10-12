@@ -1,5 +1,5 @@
 {
- "what": "Two Neatlogs conditional detections for Fence runs. Create each once in the dashboard (Detections > New > Conditional) or with the CLI commands below; Fence cannot create them itself.",
+ "what": "Two Neatlogs conditional detections for Fence runs. Both exist in the Neatlogs project \"fence\", created by the project owner's session; Fence only prints these configs (`fence detections`).",
  "detections": [
   {
    "displayName": "Fence asked a human",
@@ -124,5 +124,19 @@
  "cli": [
   "neatlogs detections create --group <group-uuid-for-Neutral> --type conditional --name 'Fence asked a human' --description 'Fence stopped instead of changing code: the verdict was decision or no_record and a question was written for a maintainer.' --threshold 0.5 --run-on '{\"frequency\": \"span_type\", \"span_types\": [\"TOOL\", \"CHAIN\"], \"span_names\": [\"fence.ask\"]}' --config '{\"conditions\": null, \"logic\": null, \"root\": {\"type\": \"group\", \"logic\": \"AND\", \"children\": [{\"type\": \"rule\", \"field\": \"status\", \"operator\": \"=\", \"value\": \"OK\"}]}}'",
   "neatlogs detections create --group <group-uuid-for-Negative> --type conditional --name 'Fence fix failed verification' --description 'The worker'\"'\"'s change was rejected by Fence'\"'\"'s own verification: a regression, a test that does not reproduce the issue, or a modified pre-existing test (existing_test_modified).' --threshold 0.5 --run-on '{\"frequency\": \"span_type\", \"span_types\": [\"TOOL\"], \"span_names\": [\"fence.verify\"]}' --config '{\"conditions\": null, \"logic\": null, \"root\": {\"type\": \"group\", \"logic\": \"AND\", \"children\": [{\"type\": \"rule\", \"field\": \"status\", \"operator\": \"=\", \"value\": \"ERROR\"}]}}'"
+ ],
+ "created": [
+  {
+   "displayName": "Fence: fix failed verification",
+   "id": "ed210539-07d4-44a7-9ee4-b35ef6894484",
+   "project": "fence",
+   "seen_firing": "yes: 3 hits, all fence.verify spans with status ERROR (traces 3e5ddbd88914720c38549db486c3c449 x1, 7c82f50f2a3cc1c68ff0399ea87eb90d x2), checked 2026-10-12"
+  },
+  {
+   "displayName": "Fence: asked a human",
+   "id": "749b960e-fa61-402e-a1b5-cf78c067da84",
+   "project": "fence",
+   "seen_firing": "fires on every TOOL span with status OK (50+ hits), not only fence.ask: runOn.span_names is not applied by Neatlogs. The fence.ask spans of traces 6cfd5a1c9e25f045df08b48561660475, 6766b7ba6a740fd776174b2f9bab80a6 and 96cb76a7115d1fc0c78e056d101acaaa are among the hits. Needs an extra condition; checked 2026-10-12"
+  }
  ]
 }

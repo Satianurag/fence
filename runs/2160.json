@@ -5,7 +5,7 @@
  "verdict": {
   "verdict": "precedent",
   "confidence": 0.93,
-  "rationale": "A maintainer already ruled on this exact issue (#2160): new agent integrations such as Goose and Qwen Code should go through the external agent path (standalone entire-agent-<name> binaries) rather than being added to the CLI directly. The evidence concerns unrelated code (git remote helper, noun-group commands), so this ruling settles it.",
+  "rationale": "The maintainer ruling on this exact issue (#2160) says new agent integrations such as Goose and Qwen Code are not added to the CLI directly. They go through the external agent path first. The evidence found by search concerns unrelated code (git remote helper, noun-group commands).",
   "quotes": [],
   "ruling_id": "fact:ac9834cf8740308a0f8fdee6"
  },
@@ -104,18 +104,19 @@
   }
  ],
  "cost": {
-  "usd": 0.024817,
+  "usd": 0.024597,
   "llm_calls": 1,
   "input_tokens": 2,
-  "output_tokens": 177,
+  "output_tokens": 151,
   "cache_read_tokens": 666,
-  "cache_write_tokens": 5744
+  "cache_write_tokens": 5754
  },
- "trace_id": "fae99eda51795017114c96c5a85a3227",
+ "trace_id": "6269339a10453e92349cb1b323927c78",
  "error": null,
  "ruling": {
   "id": "fact:ac9834cf8740308a0f8fdee6",
   "text": "Ruling on issue #2160 (Feature request: Goose and Qwen Code agent integrations): we don't add agent integrations to the CLI directly. New agents go through the external agent path first, standalone entire-agent-<name> binaries in https://github.com/entireio/external-agents that talk to the CLI over the external agent protocol. Once an integration is well tested and broadly used, we can consider pulling it into the CLI source tree. Closing as not planned for the CLI itself. [source: gtrrz-victor (CONTRIBUTOR), 2026-08-31, https://github.com/entireio/cli/issues/2160#issuecomment-5476033646]"
  },
- "trace_spans": 7
+ "trace_spans": 7,
+ "trace_project": "fence"
 }

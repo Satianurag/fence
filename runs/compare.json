@@ -11,7 +11,7 @@
    "mode": "fence",
    "ran": true,
    "verdict": "mistake",
-   "outcome": null,
+   "outcome": "fix",
    "action": "fixed",
    "reason": null,
    "files_changed": [
@@ -19,18 +19,18 @@
     "cmd/entire/cli/trailers/trailers.go"
    ],
    "tests_newly_passing": [
-    "TestAppendCheckpointTrailer_IndentedPseudoTrailer",
-    "TestAppendCheckpointTrailer_IndentedPseudoTrailer/space-indented_checkpoint_line",
-    "TestAppendCheckpointTrailer_IndentedPseudoTrailer/tab-indented_checkpoint_line",
-    "TestAppendCheckpointTrailer_IndentedPseudoTrailer/trailer_block_ending_in_continuation_line"
+    "TestAppendTrailerLine_IndentedPseudoTrailer",
+    "TestAppendTrailerLine_IndentedPseudoTrailer/space_indent",
+    "TestAppendTrailerLine_IndentedPseudoTrailer/tab_indent",
+    "TestAppendTrailerLine_IndentedPseudoTrailer/trailer_with_continuation"
    ],
    "verified": true,
    "verification": "4 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.138093,
-   "duration_s": 48.5,
-   "commit": "4147ce849ccc50cdbad6d32a4e3274ed833e3b5c",
-   "trace_id": "dc90932fbe6e2d57187313df187b5a36",
+   "cost_usd": 0.132417,
+   "duration_s": 46.4,
+   "commit": "74b4a0a21d753552c080426c0a30a5951d797599",
+   "trace_id": "abe01d2622eba06e3ef75f409a37b8b7",
    "error": null
   },
   {
@@ -46,18 +46,18 @@
     "cmd/entire/cli/trailers/trailers.go"
    ],
    "tests_newly_passing": [
-    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph",
-    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph/space_indented",
-    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph/tab_indented",
-    "TestAppendCheckpointTrailer_IndentedTrailerLikeParagraph/trailer_with_continuation"
+    "TestAppendCheckpointTrailer_IndentedFinalParagraph",
+    "TestAppendCheckpointTrailer_IndentedFinalParagraph/space_indented",
+    "TestAppendCheckpointTrailer_IndentedFinalParagraph/tab_indented",
+    "TestAppendCheckpointTrailer_IndentedFinalParagraph/trailer_with_continuation"
    ],
    "verified": true,
    "verification": "4 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.093412,
-   "duration_s": 38.6,
-   "commit": "4b5ceb145db87080e5b6ac9f6e561728d6b00532",
-   "trace_id": "18b04c494152d886db3b2252d3410b1f",
+   "cost_usd": 0.08763,
+   "duration_s": 40.2,
+   "commit": "4ce42b281407c848953b25856bca2fee6003646e",
+   "trace_id": "ca1b84121e69e3e09b59ad599cb8c28e",
    "error": null
   },
   {
@@ -78,10 +78,10 @@
    "verified": true,
    "verification": "1 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.140189,
-   "duration_s": 48.2,
-   "commit": "94974c98759da84f1f6bfc723a294d5e7b07f9b6",
-   "trace_id": "4b08bbcd7af1b814d70c9023c2bf7f76",
+   "cost_usd": 0.143542,
+   "duration_s": 45.3,
+   "commit": "d73de520ab710421e2fa64028e19cc687ec8270a",
+   "trace_id": "dca41c921bb28ebfddc2ab82ea5724d2",
    "error": null
   },
   {
@@ -102,10 +102,10 @@
    "verified": true,
    "verification": "1 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.064954,
-   "duration_s": 34.1,
-   "commit": "26d602ee518ae1fb0203266c00f182a20ccf464c",
-   "trace_id": "d71038fcb1320ee301e807e547548c15",
+   "cost_usd": 0.09035,
+   "duration_s": 40.3,
+   "commit": "20293cf1d33b6cd3c3d33d980afe9a9a962d0dca",
+   "trace_id": "e07a79ec1096dd08c2847666a111fd11",
    "error": null
   },
   {
@@ -121,15 +121,15 @@
     "cmd/entire/cli/settings/settings.go"
    ],
    "tests_newly_passing": [
-    "TestLoad_ClonePreferencesEnabledAppliesAndLocalWins"
+    "TestLoad_ClonePreferencesEnabledOverridesProject"
    ],
    "verified": true,
    "verification": "1 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.12145,
-   "duration_s": 56.6,
-   "commit": "eefa74936ad24c838d95d88dab98cabf3f0efd2a",
-   "trace_id": "74ef6e9ca12eaf9bd82e755d69f0194a",
+   "cost_usd": 0.126823,
+   "duration_s": 56.0,
+   "commit": "e00afe0826e3804fc5ed780c8024f340c6146f26",
+   "trace_id": "3f2861ad5a834f755a1c5f4922fb3218",
    "error": null
   },
   {
@@ -166,8 +166,8 @@
    "action": "fixed",
    "reason": null,
    "files_changed": [
-    "internal/entireclient/httpclient/proxy_test.go",
-    "internal/entireclient/httpclient/transport.go"
+    "internal/entireclient/httpclient/transport.go",
+    "internal/entireclient/httpclient/transport_proxy_test.go"
    ],
    "tests_newly_passing": [
     "TestNewTransportHonorsProxyEnvironment"
@@ -175,10 +175,10 @@
    "verified": true,
    "verification": "1 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.076277,
-   "duration_s": 47.0,
-   "commit": "2d7a55841f5a2699512c91fd2d22f7ab321913c5",
-   "trace_id": "6b13f62d9ef742408a29fd83bb247695",
+   "cost_usd": 0.072866,
+   "duration_s": 32.5,
+   "commit": "916f4dd0538d64f019ddf709b43ef6eb43d18655",
+   "trace_id": "63be846085f78121561c0200e3478a4b",
    "error": null
   },
   {
@@ -194,15 +194,15 @@
     "internal/entireclient/httpclient/transport.go"
    ],
    "tests_newly_passing": [
-    "TestTransportsHonorProxyEnv"
+    "TestTransportsHonorProxyEnvironment"
    ],
    "verified": true,
    "verification": "1 test(s) newly passing, no regressions",
    "attempts": 1,
-   "cost_usd": 0.055758,
-   "duration_s": 24.4,
-   "commit": "71e6bb6214bce3dae30d0a70541654e1cffa9b3c",
-   "trace_id": "42c3ccc60136e316e64ee8d661c40133",
+   "cost_usd": 0.05581,
+   "duration_s": 21.6,
+   "commit": "a9873f2b19ad31b2bca0586e6ca5432aec3d56ac",
+   "trace_id": "de23e0baf16462a78214e6f8a8cbe11c",
    "error": null
   },
   {
@@ -218,10 +218,10 @@
    "verified": false,
    "verification": null,
    "attempts": 0,
-   "cost_usd": 0.00477,
-   "duration_s": 8.6,
+   "cost_usd": 0.020503,
+   "duration_s": 8.9,
    "commit": null,
-   "trace_id": "4480f8efcc171eed4fae66fedc77ad66",
+   "trace_id": "6766b7ba6a740fd776174b2f9bab80a6",
    "error": null
   },
   {
@@ -230,24 +230,64 @@
    "ran": true,
    "verdict": null,
    "outcome": null,
-   "action": "fixed",
-   "reason": null,
+   "action": "needs_human",
+   "reason": "existing_test_modified: lines were changed or removed in cmd/entire/cli/strategy/hook_managers_test.go",
    "files_changed": [
     "cmd/entire/cli/strategy/hook_managers.go",
     "cmd/entire/cli/strategy/hook_managers_lefthook_test.go",
     "cmd/entire/cli/strategy/hook_managers_test.go"
    ],
+   "tests_newly_passing": [],
+   "verified": false,
+   "verification": "existing_test_modified: lines were changed or removed in cmd/entire/cli/strategy/hook_managers_test.go",
+   "attempts": 2,
+   "cost_usd": 0.165265,
+   "duration_s": 592.1,
+   "commit": null,
+   "trace_id": "7c82f50f2a3cc1c68ff0399ea87eb90d",
+   "error": null
+  },
+  {
+   "issue": 2033,
+   "mode": "fence",
+   "ran": true,
+   "verdict": "decision",
+   "outcome": "ask",
+   "action": "not_fixed",
+   "reason": "verdict is decision; Fence only changes code on a mistake verdict and asked a human instead",
+   "files_changed": [],
+   "tests_newly_passing": [],
+   "verified": false,
+   "verification": null,
+   "attempts": 0,
+   "cost_usd": 0.028023,
+   "duration_s": 8.8,
+   "commit": null,
+   "trace_id": "96cb76a7115d1fc0c78e056d101acaaa",
+   "error": null
+  },
+  {
+   "issue": 2033,
+   "mode": "baseline",
+   "ran": true,
+   "verdict": null,
+   "outcome": null,
+   "action": "fixed",
+   "reason": null,
+   "files_changed": [
+    "cmd/entire/cli/setup.go",
+    "cmd/entire/cli/setup_checkpoint_remote_generic_test.go"
+   ],
    "tests_newly_passing": [
-    "TestDetectHookManagers_Lefthook",
-    "TestLefthookOverwritesHooksWarning"
+    "TestParseCheckpointRemoteFlag_GenericGitProvider"
    ],
    "verified": true,
-   "verification": "2 test(s) newly passing, no regressions",
-   "attempts": 1,
-   "cost_usd": 0.117362,
-   "duration_s": 455.7,
-   "commit": "c68bba11366fcbb637187063d45637a7bcf91477",
-   "trace_id": "95a5e17b1d3d5c2c52f8fc9326633707",
+   "verification": "1 test(s) newly passing, no regressions",
+   "attempts": 2,
+   "cost_usd": 0.241161,
+   "duration_s": 1471.8,
+   "commit": "6349e8e74f9b39b0f49d3c993491977eea379218",
+   "trace_id": "3e5ddbd88914720c38549db486c3c449",
    "error": null
   }
  ]
