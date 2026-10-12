@@ -1,0 +1,49 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+Milestone 1 accepted, including your choices (tools disabled for the verdict call, at-created default, runs committed, search opt-in for the batch resolver and no top-up). Thanks for stating the weak points plainly.
+
+## Milestone 2, in this order. Report after each part.
+
+### A. `fence fix --issue N` (verdict = mistake -> act)
+1. Work copy: `git clone --local "$FENCE_TARGET" work/<issue>` at HEAD (work/ is git-ignored). Never write to the FENCE_TARGET clone itself.
+2. Record a test baseline before any edit: `entire graph verify --test "go test -v <package>" --repo work/<issue> --record-baseline <file>`. Note: verify needs `go test -v`; without -v it only reports pass/fail.
+3. Worker: headless Claude Code with tools enabled, cwd = the work copy, model $FENCE_MODEL, `--output-format json`. Its prompt contains the issue, the located spans and the verdict rationale, and tells it to: write a failing test that reproduces the issue, make the smallest fix, run only the narrow test, and stop. No pushing, no PRs.
+4. Fence verifies independently, it does not trust the worker's report: `entire graph verify ... --pre-edit-baseline <file>`. Success = the new test is NEWLY PASSING and nothing regressed.
+5. If verification fails, retry once: feed the failing output through `entire graph explain` and give that to the worker as the next prompt. Record both attempts. This retry is the "action failed, here is what the agent did next" evidence, so it must come from a real failure, never a staged one.
+6. On success commit on a branch `fence/issue-<N>` inside the work copy only.
+7. Add worker and verify spans (with real cost from the worker's JSON) to the same Neatlogs trace as the investigation.
+
+### B. Ask once, remember (verdict = decision or no_record)
+1. Set up Entire Brain in this repo with `entire brain setup --no-backfill --no-daemon` (install: see https://docs.entire.io/guides/brain/overview). Facts must go under the `constraints.` category.
+2. Before asking, `entire brain recall "<issue title>" --json`; pass any returned facts to the verdict prompt as prior rulings. If a ruling covers the case, the outcome is `precedent` and nobody is asked.
+3. Otherwise write runs/questions/<N>.md: the question, the evidence quotes with commit and checkpoint ids, and what Fence would do for each possible answer.
+4. `fence answer --issue N "<ruling>"` stores the ruling with `entire brain remember` and re-runs the issue.
+5. Demonstrate it on two issues of the same kind: the first is asked, the second is resolved by precedent. For the first ruling, use what a maintainer actually wrote in that issue's thread if the thread has one (data/cli_issues.json), and record its source; do not invent a ruling.
+
+### C. `fence eval`
+Run investigate (no fixing) over every closed issue that locates by name and traces to at least one checkpoint. Compare the verdict with what actually happened to the issue (state_reason completed vs not_planned) and write runs/eval.json with the full table and the total cost. State the limits of this comparison in the output itself: "completed" also covers feature work, and the not_planned traced set is very small.
+
+### D. Baseline for before/after
+`fence fix --issue N --baseline` skips investigation and memory and sends the issue straight to the worker. Run both modes on #2256 plus whichever other issues reached `mistake`, and on one `decision` issue to show the difference in behaviour. Write runs/compare.json: per issue and mode, verdict, files changed, tests newly passing, attempts, cost, duration.
+
+Rules as before: small commits, push when a part works, subagents on Haiku only, never print key values, say plainly what does not work. The Neatlogs project name may change later; keep reading it from NEATLOGS_PROJECT.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>banysudmh</task-id>
+<tool-use-id>toolu_01BnQ1forjWBnin17gsdWCqK</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/b621b9ad-934b-4824-8368-b2b2ece057b4/tasks/banysudmh.output</output-file>
+<status>completed</status>
+<summary>Background command "Run fence fix on issue 2256 for real" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6xwjavxh</task-id>
+<tool-use-id>toolu_019n2Dj8ipoXVoT38pDCs7TN</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/b621b9ad-934b-4824-8368-b2b2ece057b4/tasks/b6xwjavxh.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun fence fix on issue 2256" completed (exit code 0)</summary>
+</task-notification>
