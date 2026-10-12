@@ -1,0 +1,236 @@
+{
+ "issue": 2368,
+ "title": "applyBackfilledSessionTokenUsage overwrites the session-wide token total with the checkpoint window delta for every non-Copilot agent",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "None of the evidence shows a choice to overwrite the session-wide TokenUsage with the checkpoint window delta for non-Copilot agents. The commits touch nearby code (subagent token handling, model backfill, state mutation locking) but never discuss this unguarded branch. The d313e118d3 transcript notes that the backfill can return `checkpointUsage` verbatim, but treats this as a side effect to work around, not as intended behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "175830e1d0",
+  "files_named": 5,
+  "symbols_named": 13,
+  "spans": 13,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    561,
+    561,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    1193,
+    1193,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_git.go",
+    124,
+    124,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/status.go",
+    642,
+    642,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/session_tokens.go",
+    208,
+    208,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_git.go",
+    533,
+    539,
+    "func:resetCheckpointWindow"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    514,
+    676,
+    "func:CondenseSession"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    1170,
+    1176,
+    "func:applyBackfilledSessionTokenUsage"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    1180,
+    1198,
+    "func:sessionStateBackfillTokenUsage"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    1140,
+    1158,
+    "func:replaceSubagentTokensFrom"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_git.go",
+    27,
+    196,
+    "func:SaveStep"
+   ],
+   [
+    "cmd/entire/cli/status_style.go",
+    111,
+    120,
+    "func:totalTokens"
+   ],
+   [
+    "cmd/entire/cli/session_tokens.go",
+    278,
+    295,
+    "func:buildSessionTokensUsage"
+   ]
+  ],
+  "lines": 418,
+  "lines_linked": 220,
+  "checkpoints": 42
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "e2f73e8988",
+   "checkpoint": "9229354b3845",
+   "text": "Funnel all session-state mutations through MutateSessionState\n\nThe previous PostToolUse-only lock fixed parallel PostToolUse races but\nleft every other writer (TurnEnd, PostCommit, condense, model update,\nreview env adoption, attribution divergence, post-rewrite remap, etc.)\ndoing its own unlocked load → mutate → save. A PostToolUse save could\nstill revert Phase, CheckpointTranscriptStart, TurnCheckpointIDs, token\nusage, and other fields if it landed between another writer's load and\nsave.\n\nConvert every session-state load-modify-save in the lifecycle dispatcher\nand strategy package to MutateSessionState (or, for the rare new-state\ncase, to wrap the lone save in acquireSessionGate). The helper now:\n  - Takes an OS flock against .git/entire-session-locks/<id>.lock for\n    the duration of the load + fn + save.\n  - Layers a per-process gate keyed by goroutine ID over the flock so\n    nested calls in the same goroutine share the outer's state pointer\n    rather than deadlocking on a second flock or losing inner updates\n    to the outer save.\n  - Returns ErrStateNotFound when no state file exists, letting callers\n    distinguish \"no session\" from a successful no-op.\n  - Honours ErrMutationSkip so fn can decline to save when the merge\n    produced no change (key for the PostToolUse hot path).\n\nLock files moved out of .git/entire-sessions/ so callers that enumerate\nsession state (tests, doctor, status) don't have to filter them.\nClearSessionState sweeps the lock too.\n\nAdds TestMutat"
+  },
+  {
+   "source": "transcript",
+   "commit": "e2f73e8988",
+   "checkpoint": "9229354b3845",
+   "text": "[assistant] sult.TotalTranscriptLines` (268) after the first condense (`manual_commit_hooks.go:1375` in current code), and that should flow into the second checkpoint's `writeOpts.CheckpointTranscriptStart` via `manual_commit_condensation.go:243`. Both metadata files showing 0 means either:\n\n1. v0.5.6 didn't advance `state.CheckpointTranscriptStart` for external agents on commit (possible — current code does, but I'd need to check the 0.5.6 tag), or\n2. Something reset state between the two turns (Codex Desktop restart, session-state file deletion, orphaned-shadow reset, etc.). The two checkpoints do have \n[assistant] : `handleLifecycleSessionStart`, `handleLifecycleModelUpdate`, `handleLifecycleCompaction`, `transitionSessionTurnEnd`, review-env adoption, both `LastPrompt` backfill paths.\n- **Strategy package**: `SaveStep`, `SaveTaskStep`, `PostCommit`'s per-session loop, `CondenseSessionByID`, `CondenseAndMarkFullyCondensed`, `InitializeSession` (TurnStart path), the post-rewrite remap, `postCommitUpdateBaseCommitOnly`, `warnIfAttributionDiverged`, and `initializeSession`'s create-time save.\n\nThe helper takes an OS flock against `.git/entire-session-locks/<id>.lock` for the load+fn+save, with a per-proces\n[assistant] on` shows:\n```\n\"files_touched\": [\n  \"cmd/entire/cli/checkpoint_group.go\",\n  \"cmd/entire/cli/explain.go\"\n]\n```\n\n— exactly Claude's committed file set, assigned by the `filterFilesTouched` fallback at `manual_commit_condensation.go:421`.\n\nThat's interesting because it actually breaks my earlier story: with empty `filesTouchedBefore` AND `sessionsWithCommittedFiles > 0` (Claude's state.FilesTouched populated by SaveStep), the read-only-skip branch in `shouldCondenseWithOverlapCheck` should have fired and Codex *should* have been skipped at the gate stage. But it wasn't — Codex was condensed (line"
+  },
+  {
+   "source": "prompt",
+   "commit": "e2f73e8988",
+   "checkpoint": "9229354b3845",
+   "text": "/simplify\n\n---\n\n<task-notification>\n<task-id>a0873d9e14481f399</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli/b1ed7d58-eb6b-498c-931f-1f6f207e13c3/tasks/a0873d9e14481f399.output</output-file>\n<status>completed</status>\n<summary>Agent \"Efficiency review\" completed</summary>\n<result>Reviewing `/tmp/codex-posttooluse-diff.patch` for efficiency only.\n\n**Findings:**\n\n1. **`RecordFilesTouched` writes the state file even when nothing changed** (`session_state.go:962-964`). PostToolUse fires after every tool call; repeated `apply_patch` calls touching the same path (e.g., multiple Updates to the same file) hit `mergeFilesTouched` which always returns a freshly-allocated, sorted slice — even if equal to `state.FilesTouched`. The"
+  },
+  {
+   "source": "commit_message",
+   "commit": "8ee620631a",
+   "checkpoint": "ab4dd5b77ca7",
+   "text": "add token usage diagnostics"
+  },
+  {
+   "source": "prompt",
+   "commit": "8ee620631a",
+   "checkpoint": "ab4dd5b77ca7",
+   "text": "can you create draft pr please"
+  },
+  {
+   "source": "commit_message",
+   "commit": "8bbe414758",
+   "checkpoint": "66e7cddb010c",
+   "text": "Backfill Pi model into checkpoint metadata from transcript\n\nPi's hook events (session_start, before_agent_start, agent_end) carry no\nmodel field, so Event.Model was never set and checkpoint metadata recorded\nan empty \"model\" — even though every Pi assistant message records\nmessage.model (e.g. \"gpt-5.5\"), right next to the usage we already read.\n\nAdd an optional agent.ModelExtractor interface (resolved via the ungated\nAsModelExtractor helper, mirroring AsSessionBaseDirProvider) and implement\nit for Pi by reading message.model from the most recent active-branch\nassistant message — handling mid-session model changes. Condensation calls\nsessionStateBackfillModel to fill state.ModelName when it's empty, so\nhook-reported models (Claude Code, Gemini) still take precedence. This\nmirrors the existing transcript-based token-usage backfill.\n\nWhile here, extract pijsonl.ForEachActiveMessage to own the active-branch\nscan skeleton that CalculateTokenUsage, ExtractModifiedFilesFromOffset,\nExtractPrompts, and the new ExtractModel had each hand-rolled."
+  },
+  {
+   "source": "transcript",
+   "commit": "8bbe414758",
+   "checkpoint": "66e7cddb010c",
+   "text": "[assistant] Now the helper next to `sessionStateBackfillTokenUsage`:\n[assistant] tractModel` implementation: branch-aware (uses `ResolveActiveBranch`), returns the model from the **most recent** active-branch assistant message, so mid-session `/model` changes are reflected.\n5. **`manual_commit_condensation.go`** — `sessionStateBackfillModel` helper + a call right after the existing token-usage backfill. Guarded by `if state.ModelName == \"\"`, so hook-reported models (Claude Code, Gemini, etc.) always win.\n6. **`docs/architecture/agent-guide.md`** — documented the model location and backfill path.\n\n## Tests added\n- `ExtractModel`: linear, mid-session model change (most recen"
+  },
+  {
+   "source": "prompt",
+   "commit": "8bbe414758",
+   "checkpoint": "66e7cddb010c",
+   "text": "Can you take a look at the pi integration, for example in ../entire.io running git show entire/checkpoints/v1:49/d5e907970c/0/metadata.json gives you:\n\n\ngit show entire/checkpoints/v1:49/d5e907970c/0/metadata.json\n{\n  \"cli_version\": \"v0.6.3-nightly.202605220724.6d616b16-dev-be0bdf7d4\",\n  \"checkpoint_id\": \"49d5e907970c\",\n  \"session_id\": \"019e4fd4-807c-7243-9521-deb164dcd52c\",\n  \"strategy\": \"manual-commit\",\n  \"created_at\": \"2026-05-22T21:10:18.41727Z\",\n  \"branch\": \"dip/trails-detail-labels-generic-timeline\",\n  \"checkpoints_count\": 0,\n  \"files_touched\": [\n    \"frontend/src/domains/platform/trails/components/TrailTimeline.tsx\"\n  ],\n  \"agent\": \"Pi\",\n  \"model\": \"\",\n  \"turn_id\": \"c5461e2ae123\",\n  \"checkpoint_transcript_start\": 1190,\n  \"transcript_lines_at_start\": 1190,\n  \"token_usage\": {\n    \"inp"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d313e118d3",
+   "checkpoint": "01M25XQWPFQ4VMBMD1B1Q0SCY9",
+   "text": "fix(checkpoint): harden live subagent accounting\n\nAvoid rescanning when a checkpoint-scoped subagent total already exists, keep zero deltas absent, and require a supported agent plus a real confined directory. Exercise the production live extractor across a rebaseline."
+  },
+  {
+   "source": "transcript",
+   "commit": "d313e118d3",
+   "checkpoint": "01M25XQWPFQ4VMBMD1B1Q0SCY9",
+   "text": "[user] ), and does the PR's tty_windows.go approach match how the repo handles other platform splits.\n\n## #1394 [bug] Preserve Claude subagent token totals during condensation\nFiles: cmd/entire/cli/strategy/manual_commit_condensation.go\nWhat I found: main still passes `\"\"` as the subagents dir at BOTH call sites - manual_commit_condensation.go:1471 and :1517 (`agent.CalculateTokenUsage(ctx, ag, data.Transcript, checkpointTranscriptStart, \"\")`). Those are exactly the two lines the PR changes. Notably the `//TODO: why do we not use here subagents dir?` marker that used to sit on those lines has since b\n[assistant] sts.\n\n---\n\n## #1394 — Preserve Claude subagent token totals during condensation\n\n### 1. Bug real on current main? **Yes, but only in a narrower case**\n\nThe original general loss during ordinary post-`SaveStep` condensation has already been fixed:\n\n- `manual_commit_condensation.go:564-570` restores the checkpoint-scoped value from `state.CheckpointTokenUsage`.\n- `manual_commit_condensation.go:1129-1155` documents and implements `withSubagentTokensFrom`.\n- Targeted current-main subagent accounting tests pass.\n\nPassing `subagentsDir=\"\"` is now deliberate, not an unexplained leftover:\n\n- Shadow pa\n[user] ict\n\nThe fix is correct. The rescoping, the state persistence, and the failure/skip paths all hold up. The second commit's `withCumulativeSubagentTokensFrom` swap is a genuine fix rather than churn: `sessionStateBackfillTokenUsage` can return `checkpointUsage` verbatim (the `InputTokens > 0` branch and the Copilot fallback), and on the live path that value carries the scoped delta, so the old `withSubagentTokensFrom` would have made the next baseline the delta. Blast radius is limited to the live path — on the shadow path `checkpointUsage.SubagentTokens` is always nil at that point, so both he"
+  },
+  {
+   "source": "prompt",
+   "commit": "d313e118d3",
+   "checkpoint": "01M25XQWPFQ4VMBMD1B1Q0SCY9",
+   "text": "ok, 1408 and 1391 are closed. I'd also close 1394 then and do a new PR with a fix, would close then when this is in. do the same for 1396, can we do this one after another\n\n---\n\ncan you open two individual PRs?\n\n---\n\ncan you look at comments on the PRs and the trail findings\n\n---\n\n- #1396 (Windows prompts) - flagged as highest priority. The /dev/tty open with no GOOS branch, the rawmode_other.go comment that states the broken assumption out loud, the four places GOOS == \"windows\" actually appears (none of them terminal detection), and WINDOWS.md:70. Asked it to determine which prompts a Windows user actually loses today.\n- #1394 (subagent tokens) - the two live call sites at manual_commit_condensation.go:1471 and :1517, plus the deleted TODO. Asked it to settle the author's own open questi"
+  },
+  {
+   "source": "commit_message",
+   "commit": "9762bcb8c9",
+   "checkpoint": "8dfabaa3d786",
+   "text": "fail closed on unreadable checkpoint policy\n\nTreat malformed local checkpoint policy refs as read errors for checkpoint-data writers and strategy checkpoint work.\n\nAgent hooks surface read-specific disabled-checkpoint messages, while Git hooks skip checkpoint work without blocking Git."
+  },
+  {
+   "source": "prompt",
+   "commit": "9762bcb8c9",
+   "checkpoint": "8dfabaa3d786",
+   "text": "commit and continue\n\n---\n\nCommit and continue\n\n---\n\nThere's another issue: Do we currently have a way to unset checkpoint_version and min_checkpoint_version in oder to use the default value again? I don't\n  think we do and that could be a problem.\n\n---\n\nLet's go with that and see what it looks like\n\n---\n\nWhat's the point of State.ConfiguredPolicy?\n\n---\n\nI don't think thesetwo cases need to be distinguished. Either the checkpoint version is set or it isn't for all intents and purposes, unsetting a value should remove it from the policy file as if it was never there. The cli output should show `branch-v1 (default)` if a value was unset or never set.\n\n---\n\ncommit and continue\n\n---\n\nI'm wondering if it would be simpler to allow `--checkpoint-version \"\"` as a simpler version of `--unset-checkpo"
+  },
+  {
+   "source": "commit_message",
+   "commit": "c352da9cd2",
+   "checkpoint": "de22551397e1",
+   "text": "deduplication when AfterAgent and SessionEnd fire together"
+  },
+  {
+   "source": "transcript",
+   "commit": "c352da9cd2",
+   "checkpoint": "de22551397e1",
+   "text": "[assistant] Good, there's only one caller in `manual_commit_git.go`. Let me update it to handle the new return type and the `Skipped` field.\n[assistant] Now I need to update the caller in `manual_commit_git.go` to handle the new return type and the `Skipped` field. I'll also add logging for skipped checkpoints.\n[assistant] ee hash before building the new tree\n- Added deduplication check: if `newTreeHash == lastTreeHash`, returns early with `Skipped: true`\n- Returns the existing commit hash when skipping\n\n**3. `strategy/manual_commit_git.go`**\n- Updated `SaveChanges` to handle the new return type\n- When `result.Skipped` is true:\n  - Logs \"checkpoint skipped (no changes)\" \n  - Prints \"Skipped checkpoint (no changes since last checkpoint)\" to stderr\n  - Returns early without incrementing checkpoint count\n\n## How It Works\n\n```\nAfterAgent fires → builds tree → tree hash = abc123 → creates commit 1\nSessionEnd fires → "
+  },
+  {
+   "source": "prompt",
+   "commit": "c352da9cd2",
+   "checkpoint": "de22551397e1",
+   "text": "ok, works, can you now tell me why a single prompt created three commits in the entire/56f7398 branch (again in the test repo)\n\n---\n\nCan you explain how a proper deduplication would look like?\n\n---\n\nlet's do option 1 straight away"
+  },
+  {
+   "source": "commit_message",
+   "commit": "38c554dd45",
+   "checkpoint": "7c52cb84aa82",
+   "text": "Redesign `entire status` with styled output and session cards\n\nAdd lipgloss-based styling to the status command with colored dots,\nseparator-delimited fields, session cards showing phase/files/tokens,\nand aggregate footer stats. Falls back to plain text for non-terminals."
+  },
+  {
+   "source": "commit_message",
+   "commit": "cf7552f019",
+   "checkpoint": "0e42eb4462d9",
+   "text": "add post commit cache"
+  },
+  {
+   "source": "transcript",
+   "commit": "cf7552f019",
+   "checkpoint": "0e42eb4462d9",
+   "text": "[user]       ← READ #13: shadow tree (REDUNDANT with #8)\n  │   │       └── headCommit.Parent(0) + tree    ← READ #14-15: parent (REDUNDANT with #4-5)\n  │   │\n  │   ├── condenseAndUpdateState()\n  │   │   └── CondenseSession() [condensation.go:115]\n  │   │       ├── repo.Reference(shadowBranch)   ← READ #16: shadow ref (REDUNDANT 3rd time)\n  │   │       ├── extractSessionData()\n  │   │       │   ├── repo.CommitObject()        ← READ #17: shadow commit (REDUNDANT)\n  │   │       │   └── commit.Tree()              ← READ #18: shadow tree (REDUNDANT)\n  │   │       │\n  │   │       ├── GetGitAuthorFromRepo()\n[user] tore.go - GitStore struct\n   - checkpoint.go - Data types and interfaces\n   - manual_commit_hooks.go - PostCommit hook with redundant reads\n   - content_overlap.go - Content comparison functions\n   - manual_commit_condensation.go - Condensation logic\n   - bench_test.go - Existing benchmarks\n   - checkpoint_test.go - Existing tests\n   - benchutil.go - Test fixtures\n\n4. I created task items for all 4 steps and started on Step 1.\n\n5. I wrote an initial tree_surgery.go that was too large (mixed concerns), then rewrote it to be cleaner with just core primitives.\n\n6. I attempted to run `go build` to\n[user]   - Contains the per-session loop with redundant git reads\n     - `postCommitActionHandler` struct at line 715 passes repo, head, commit, shadowBranchName to handlers\n\n   - **`cmd/entire/cli/strategy/manual_commit_condensation.go`** (READ - not modified)\n     - `CondenseSession` and `calculateSessionAttributions` — sources of redundant HEAD/shadow reads\n\n   - **`cmd/entire/cli/strategy/content_overlap.go`** (READ via explore agent - not modified)\n     - `filesOverlapWithContent`, `filesWithRemainingAgentChanges` — sources of redundant reads\n\n   - **`cmd/entire/cli/strategy/hooks.go`** (READ vi"
+  },
+  {
+   "source": "prompt",
+   "commit": "cf7552f019",
+   "checkpoint": "0e42eb4462d9",
+   "text": "<task-notification>\n<task-id>a284b9b</task-id>\n<status>completed</status>\n<summary>Agent \"Plan tree surgery optimization\" completed</summary>\n<result>I now have a thorough understanding of the codebase. Let me now design the complete implementation plan.\n\nHere is the detailed implementation plan for the two commit performance optimizations: **incremental tree update for the metadata branch** and **tree surgery for BuildTreeFromEntries**.\n\n---\n\n## 1. Problem Analysis\n\nThere are three performance bottlenecks identified in the current code, all rooted in the same pattern: **flatten the entire tree into a flat map, modify a few entries, and rebuild the entire tree from scratch**.\n\n### Bottleneck #1: `WriteCommitted` (committed.go, line 68)\nEvery call to `WriteCommitted`, `UpdateCommitted`, or "
+  }
+ ],
+ "cost": {
+  "usd": 0.040579,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 182,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 9672
+ },
+ "trace_id": "1385ac90f8942495b9881aa4415f0c9a",
+ "error": null,
+ "trace_spans": 6
+}

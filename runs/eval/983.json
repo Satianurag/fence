@@ -1,0 +1,242 @@
+{
+ "issue": 983,
+ "title": "Bug: External Agent $PATH auto-discovery fails for non-built-in and passive agents (v0.5.5)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.6,
+  "rationale": "The evidence covers status refactoring, the external agent prototype, attach loosening, and the enable agent-selection flow. None of it mentions deciding that attach/status skip $PATH discovery, that passive agents without hook support be excluded from configure, or that discovery be gated on settings. These gaps look like omissions rather than chosen behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "fcda1cf7a7",
+  "files_named": 12,
+  "symbols_named": 15,
+  "spans": 11,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/external/discovery.go",
+    42,
+    44,
+    "func:DiscoverAndRegisterAlways"
+   ],
+   [
+    "cmd/entire/cli/agent/capabilities.go",
+    30,
+    42,
+    "func:AsHookSupport"
+   ],
+   [
+    "cmd/entire/cli/agent/external/discovery.go",
+    31,
+    37,
+    "func:DiscoverAndRegister"
+   ],
+   [
+    "cmd/entire/cli/settings/settings.go",
+    770,
+    776,
+    "func:IsExternalAgentsEnabled"
+   ],
+   [
+    "cmd/entire/cli/status.go",
+    53,
+    109,
+    "func:runStatus"
+   ],
+   [
+    "cmd/entire/cli/setup.go",
+    1093,
+    1240,
+    "func:detectOrSelectAgent"
+   ],
+   [
+    "cmd/entire/cli/agent/external/discovery.go",
+    47,
+    132,
+    "func:discoverAndRegister"
+   ],
+   [
+    "cmd/entire/cli/setup.go",
+    1008,
+    1019,
+    "func:checkDisabledGuard"
+   ],
+   [
+    "cmd/entire/cli/attach.go",
+    69,
+    209,
+    "func:runAttach"
+   ],
+   [
+    "cmd/entire/cli/status.go",
+    33,
+    51,
+    "func:newStatusCmd"
+   ],
+   [
+    "cmd/entire/cli/status.go",
+    552,
+    644,
+    "func:runStatusJSON"
+   ]
+  ],
+  "lines": 586,
+  "lines_linked": 543,
+  "checkpoints": 38
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "9681273e87",
+   "checkpoint": "d159f45ed083",
+   "text": "Add --json flag to status command and zsh prompt segment\n\nAdd machine-readable JSON output to `entire status` for shell prompt\nintegration. The JSON output includes enabled state, installed agents,\nand active sessions (deduplicated by agent, sorted alphabetically).\nAll error paths return valid JSON with an error field.\n\nAdd contrib/prompt.zsh with an agnoster-compatible prompt segment that\nshows per-agent activity indicators (●/○) using cached status data.\n\nAssisted-by: Claude Opus 4.6 <noreply@anthropic.com>"
+  },
+  {
+   "source": "prompt",
+   "commit": "9681273e87",
+   "checkpoint": "d159f45ed083",
+   "text": "Review the current changes"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a9c44759cd",
+   "checkpoint": "9dbb8abf12c8",
+   "text": "Extract status command into dedicated status.go file\n\nMove runStatus, writeActiveSessions, timeAgo, and related formatting\nhelpers from setup.go into status.go. Move corresponding tests into\nstatus_test.go. Pure refactor with no behavior changes."
+  },
+  {
+   "source": "transcript",
+   "commit": "a9c44759cd",
+   "checkpoint": "9dbb8abf12c8",
+   "text": "[user] asked me to \"please please fix up any code quality issues you notice and don't leave them by the wayside if they are small\"\n\n4. I found and fixed multiple code quality issues:\n   - Import ordering in setup.go\n   - Auto-commit FirstPrompt backfill on resume\n   - Guard against git -C for unknown paths\n   - Trailing blank line after last worktree group\n   - Variable shadowing (s -> st)\n   - Extracted truncatePromptForStorage helper\n   - Removed unused imports\n   - Extracted unknownPlaceholder constant\n   - Tightened test assertion\n   - Added explanatory comment\n\n5. The user then said \"commit this\n[assistant] Yes, I'd say so. `setup.go` is 1410 lines with ~30 functions covering enable, disable, status, uninstall, shell completion, hook setup, and more. The status-related code we just added (`timeAgo`, `worktreeGroup`, `writeActiveSessions`, `resolveWorktreeBranch`) is a self-contained ~140-line block that only `runStatus` calls.\n\nMoving it to `status.go` would:\n- Keep `setup.go` focused on enable/disable/uninstall/hook-setup\n- Make the status logic easier to find and extend later\n- Follow the pattern already used elsewhere (e.g., `commands/` has per-command files)\n\nThe natural split: `runStatus`, `\n[assistant] Now I have a clear picture. Let me plan the extraction:\n\n**To `status.go`** (from `setup.go`):\n- `newStatusCmd` (line 148-166) - the cobra command definition\n- `runStatus` (line 453-504)\n- `runStatusDetailed` (line 507-535)\n- `formatSettingsStatusShort` (line 539-549)\n- `formatSettingsStatus` (line 553-563)\n- `timeAgo` (line 1271-1286)\n- `worktreeGroup` struct (line 1289-1293)\n\n\n- `unknownPlaceholder` const (line 1295)\n- `writeActiveSessions` (line 1298-1400)\n- `resolveWorktreeBranch` (line 1403-1410)\n\nI need to verify that `newStatusCmd` won't cause issues when moved since it's referenced dur"
+  },
+  {
+   "source": "prompt",
+   "commit": "a9c44759cd",
+   "checkpoint": "9dbb8abf12c8",
+   "text": "Implement the following plan:\n\n# ENT-64: Status Shows Session Information\n\n## Overview\n\nEnhance `entire status` to show active sessions grouped by worktree, including first prompt, timestamp, checkpoint count, and uncheckpointed work indicator.\n\n## Target Output\n\n```\nEnabled (manual-commit)\n\nActive Sessions:\n  /Users/alex/workspace/cli (main)\n    abc-123  \"Fix auth bug in login...\"   2m ago   3 checkpoints\n    def-456  \"Add dark mode support...\"   15m ago  1 checkpoint (uncheckpointed changes)\n\n  /Users/alex/workspace/cli/.worktrees/3 (alex/ent-64-status-shows-sessions)\n    ghi-789  \"Refactor status cmd...\"     5m ago   0 checkpoints (uncheckpointed changes)\n```\n\nNo active sessions → just show existing one-liner (`Enabled (manual-commit)`).\n\n## Implementation Steps\n\n### Step 1: Add `FirstP"
+  },
+  {
+   "source": "commit_message",
+   "commit": "74114ec205",
+   "checkpoint": "723a52ba8b6f",
+   "text": "Prototype of a external egent"
+  },
+  {
+   "source": "transcript",
+   "commit": "74114ec205",
+   "checkpoint": "723a52ba8b6f",
+   "text": "[user] e external agent protocol, keeping it in this repo for now.\n\nThe binary will be at `cmd/entire-agent-cursor/main.go` — a standalone Go binary that can be discovered via `$PATH` by the CLI's `external.DiscoverAndRegister()`.\n\n## Step 1: Create the Binary Entry Point\n\n**File:** `cmd/entire-agent-cursor/main.go`\n\nA simple `main()` that dispatches subcommands. Since this is a protocol binary (not a user CLI), use a switch on `os.Args[1]` rather than cobra. Parse flags with `flag.NewFlagSet` per subcommand.\n\nSubcommands to implement (matching the protocol spec):\n- `info` — static JSON response\n- `d\n[assistant] i/agent/external/external.go`** — Core `Agent` adapter implementing all `agent.Agent` methods plus optional interface methods by shelling out to the external binary\n- **`cmd/entire/cli/agent/external/capabilities.go`** — `Wrap()` function that returns the agent wrapped with only the interfaces declared in its capabilities (using delegation, not embedding, to avoid exposing all methods)\n- **`cmd/entire/cli/agent/external/discovery.go`** — `DiscoverAndRegister()` that scans `$PATH` for `entire-agent-*` binaries and registers them\n- **`cmd/entire/cli/agent/external/external_test.go`** — Tests usi\n[user] stry, cursor implementation, hooks_cmd, architecture tests, and all references to cursor.\n\n3. I created the protocol specification document, the external agent adapter package (types.go, external.go, capabilities.go, discovery.go), modified hooks_cmd.go, removed the cursor directory, updated tests, and fixed various lint issues.\n\n4. All tests passed after fixing: paths.WorktreeRoot context argument, ExternalAgent stuttering name, gosec path traversal, musttag json tags, nilnil sentinel, blank-imports comments, wrapcheck errors, and the Go embedding issue where wrapper types exposed all interfa"
+  },
+  {
+   "source": "prompt",
+   "commit": "74114ec205",
+   "checkpoint": "723a52ba8b6f",
+   "text": "Implement the following plan:\n\n# Plan: Implement Cursor Agent as External Binary\n\n## Context\n\nThe external agent protocol and adapter are already implemented (Steps 1-4 from the previous plan are complete). The built-in `cmd/entire/cli/agent/cursor/` package has been deleted. Now we need to implement the cursor agent as an external binary (`entire-agent-cursor`) that implements the external agent protocol, keeping it in this repo for now.\n\nThe binary will be at `cmd/entire-agent-cursor/main.go` — a standalone Go binary that can be discovered via `$PATH` by the CLI's `external.DiscoverAndRegister()`.\n\n## Step 1: Create the Binary Entry Point\n\n**File:** `cmd/entire-agent-cursor/main.go`\n\nA simple `main()` that dispatches subcommands. Since this is a protocol binary (not a user CLI), use a sw"
+  },
+  {
+   "source": "commit_message",
+   "commit": "4ea8c6ce23",
+   "checkpoint": "dd8d525fe7ea",
+   "text": "make attach less restricted"
+  },
+  {
+   "source": "transcript",
+   "commit": "4ea8c6ce23",
+   "checkpoint": "dd8d525fe7ea",
+   "text": "[assistant] sts are thorough, and the refactoring (trailer dedup, lifecycle backfill consolidation) is sensible.\n\n### Issues\n\n**1. `condenseAndFinalizeSession` takes `*strategy.ManualCommitStrategy` directly** (`attach.go:315`)\n\nThe comment explains why, but this couples the attach command to a specific strategy implementation. If another strategy is added, this will silently break. Consider adding `CondenseSessionByID` to the `Strategy` interface, or at minimum add a type assertion with a clear error message rather than relying on `GetStrategy()` always returning `*ManualCommitStrategy`.\n\n**2. `promptAme\n[user] 1. condenseAndFinalizeSession takes *strategy.ManualCommitStrategy directly (attach.go:315)\n\n  The comment explains why, but this couples the attach command to a specific strategy implementation. If another strategy is added, this\n  will silently break. Consider adding CondenseSessionByID to the Strategy interface, or at minimum add a type assertion with a clear error\n  message rather than relying on GetStrategy() always returning *ManualCommitStrategy.\n\nWe are not sure if we ever have another strategy again. Is there a way to not couple it to the strategy that is better then now?\n[assistant] `GetStrategy` already returns `*strategy.ManualCommitStrategy` — so the coupling is already everywhere, not just in `condenseAndFinalizeSession`. The function signature in `attach.go` is just being honest about what it receives.\n\nGiven you're unlikely to add another strategy, the current approach is fine. The only thing I'd improve is: since `runAttach` calls `GetStrategy(ctx)` which already returns `*ManualCommitStrategy`, the `condenseAndFinalizeSession` parameter type is just reflecting reality. There's no hidden coupling — it's already explicit at the call site.\n\nIf you wanted a marginal i"
+  },
+  {
+   "source": "prompt",
+   "commit": "4ea8c6ce23",
+   "checkpoint": "dd8d525fe7ea",
+   "text": "in this case the session has no checkpoint for sure, there is only one and that belongs to the other session, if you want to check have a look at: /Users/soph/Work/entire/research/git-try\n\n---\n\n2026/03/20 18:25:29 INFO no shadow branch for session, clearing state only component=condense-by-id session_id=c56761e6-d5ab-433d-84ea-b177881e8856 shadow_branch=entire/88a63a2-e3b0c4\nSession c56761e6-d5ab-433d-84ea-b177881e8856 is tracked but has no checkpoint data to link\n\n---\n\nIn this scenario: latest commit already having a checkpoint, I would consider just adding the session as an additional session. We can also ask the user for confirmation. But this is basically what I wanted\n\nIn the scenario that the latest commit has no trailer, no shadow branch, we could just attach the session and have it"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b7fd14bd92",
+   "checkpoint": "ed93da772e20",
+   "text": "update entire enable experience"
+  },
+  {
+   "source": "transcript",
+   "commit": "b7fd14bd92",
+   "checkpoint": "ed93da772e20",
+   "text": "[assistant] Let me look at the setup.go file to understand how `entire enable` works and how it selects agents.\n[assistant] DefaultAgentName)  // DefaultAgentName = \"claude-code\"\n    return a\n}\n```\n\n2. `agent.Detect()` (lines 56-67) actually does auto-detection by checking `DetectPresence()` on each agent.\n\nThe problem in setup.go is:\n1. It calls `agent.Default()` which ALWAYS returns Claude Code (not detection-based)\n2. Then it ALWAYS calls `setupClaudeCodeHook()` regardless\n\nFor Gemini, `DetectPresence()` checks for `.gemini` directory - but as the user pointed out, Gemini doesn't always create this directory, you can just run `gemini` directly in any repo.\n\nSo there are TWO issues:\n1. `entire enable` always inst\n[user] ommitMsg, PostCommit\n   - Gemini hooks: BeforeAgent, AfterAgent\n   - TTY detection for interactive prompts\n   - `huh` library for interactive forms\n\n3. Files and Code Sections:\n   - **`cmd/entire/cli/setup.go`** - Main file modified\n     - Replaced hardcoded Claude Code hooks with generic agent hooks\n     - Added interactive agent selection when no agent detected\n     - Key changes:\n     ```go\n     // setupAgentHooks sets up hooks for a given agent.\n     func setupAgentHooks(ag agent.Agent, localDev, forceHooks bool) (int, error) { //nolint:unparam\n         hookAgent, ok := ag.(agent.HookSuppo\n[assistant] All tests pass and linting is clean. The interactive agent selection feature for `entire enable` is complete.\n\n**Summary of changes in `setup.go`:**\n\n1. **Replaced `setupClaudeCodeHook`** with generic `setupAgentHooks(ag agent.Agent, ...)` that works with any agent supporting hooks\n\n2. **Added `detectOrSelectAgent(w io.Writer)`** that:\n   - First tries auto-detection (looks for `.claude` or `.gemini` directories)\n   - If detected, prints \"Detected agent: X\" and returns it\n   - If not detected and no TTY available (CI/tests), falls back to default agent\n   - If not detected but TTY is available"
+  },
+  {
+   "source": "prompt",
+   "commit": "b7fd14bd92",
+   "checkpoint": "ed93da772e20",
+   "text": "we're running into an issue with the gemini cli where shadow branches aren't being converted to checkpoints on commit.\n\nhere is the github link: https://github.com/entireio/cli/issues/356\n\ni want you to scan that link for all of the data and then read the CLI/ codebase and come up with a possible explanation as to why this is happening including a root cause.\n\n---\n\nim noticing an issue that we default to creatign a .claude file when the agent isn't readily available in the repo when i run entire enable? is that right? for instance gemini doesn't always create a .gemini file in the repo, you can just run it.\n\n---\n\nyeah let's create an experience where if the user runs entire enable without the agent flag, we check the agents that we support: claude, gemini and if none of them are there, we "
+  },
+  {
+   "source": "commit_message",
+   "commit": "e3f11d5ffd",
+   "checkpoint": "f9a59793ef8e",
+   "text": "Add re-run awareness to agent selection in `entire enable`\n\nOn subsequent runs (hooks already installed), detectOrSelectAgent now\nalways shows the interactive multi-select prompt instead of auto-using\nthe single detected agent. Agents with hooks already installed are\npre-selected alongside any newly detected agents.\n\nOn first run (no hooks installed), behavior is unchanged: single\ndetected agent auto-uses, multiple/none shows the prompt.\n\nNon-interactive fallback (no TTY) on re-run keeps the currently\ninstalled agents rather than falling back to detection only."
+  },
+  {
+   "source": "transcript",
+   "commit": "e3f11d5ffd",
+   "checkpoint": "f9a59793ef8e",
+   "text": "[assistant] ist to the selection function so it knows what to pre-select. After the user makes their choices, I'll need to uninstall hooks for any agents that were previously active but got deselected.\n\nUpdating setup.go... I need to remove that early return block entirely so the agent selection always appears on subsequent runs. For the `detectOrSelectAgent` function, I should pre-select both detected agents and those with hooks already installed. The key distinction is that on first run with nothing installed yet, we keep the current auto-selection behavior, but once settings exist and at least one agen\n[assistant] ### Step 2: Modify `detectOrSelectAgent` for re-run awareness\n[assistant] Good - only used in tests now. Let me also check that `paths` import is still needed in setup.go since I removed some code.\n[assistant] All tests pass, including the new ones. Let me also check if `filepath` import was removed from setup.go since `isFullyEnabled` no longer uses it.\n[assistant] All done. Here's a summary of the changes:\n\n### Changes made to `cmd/entire/cli/setup.go`:\n\n1. **Removed the \"Already enabled\" early exit** - `entire enable` no longer short-circuits when everything is set up. It always proceeds to agent selection.\n\n2. **Modified `detectOrSelectAgent`** to be re-run aware:\n   - On **first run** (no hooks installed): same behavior as before - single detected agent auto-uses, multiple/none shows prompt\n   - On **re-run** (hooks already installed): always shows the interactive multi-select, with installed agents + newly detected agents pre-selected\n   - Non-inter\n[assistant] **Commit 2: Add re-run awareness to `detectOrSelectAgent`**\n[assistant] Now apply the `detectOrSelectAgent` re-run changes."
+  },
+  {
+   "source": "prompt",
+   "commit": "e3f11d5ffd",
+   "checkpoint": "f9a59793ef8e",
+   "text": "\"entire enable\" should have an interactive step to select the agents supported. When running the commands subsequent times I would expect to see the interactive step again indicating which agents are already active and allow me to select/deselect.\n\n---\n\nCreate a branch, commit the changes one by one, document the behvaior in the PR you create. Send reviewer agents to have a close look at the implementation."
+  },
+  {
+   "source": "commit_message",
+   "commit": "7f2cb06806",
+   "checkpoint": "85fabf84c70c",
+   "text": "update to multi-select for agents, better copy to tell user what to do, updated tests"
+  },
+  {
+   "source": "transcript",
+   "commit": "7f2cb06806",
+   "checkpoint": "85fabf84c70c",
+   "text": "[user] ommitMsg, PostCommit\n   - Gemini hooks: BeforeAgent, AfterAgent\n   - TTY detection for interactive prompts\n   - `huh` library for interactive forms\n\n3. Files and Code Sections:\n   - **`cmd/entire/cli/setup.go`** - Main file modified\n     - Replaced hardcoded Claude Code hooks with generic agent hooks\n     - Added interactive agent selection when no agent detected\n     - Key changes:\n     ```go\n     // setupAgentHooks sets up hooks for a given agent.\n     func setupAgentHooks(ag agent.Agent, localDev, forceHooks bool) (int, error) { //nolint:unparam\n         hookAgent, ok := ag.(agent.HookSuppo\n[assistant] All tests pass and linting is clean. The interactive agent selection feature for `entire enable` is complete.\n\n**Summary of changes in `setup.go`:**\n\n1. **Replaced `setupClaudeCodeHook`** with generic `setupAgentHooks(ag agent.Agent, ...)` that works with any agent supporting hooks\n\n2. **Added `detectOrSelectAgent(w io.Writer)`** that:\n   - First tries auto-detection (looks for `.claude` or `.gemini` directories)\n   - If detected, prints \"Detected agent: X\" and returns it\n   - If not detected and no TTY available (CI/tests), falls back to default agent\n   - If not detected but TTY is available\n[assistant] The user wants me to add tests for the `detectOrSelectAgent` and `canPromptInteractively` functions. Let me first read the setup.go file to understand the current implementation, and then look at existing tests to understand the testing patterns used."
+  },
+  {
+   "source": "prompt",
+   "commit": "7f2cb06806",
+   "checkpoint": "85fabf84c70c",
+   "text": "we're running into an issue with the gemini cli where shadow branches aren't being converted to checkpoints on commit.\n\nhere is the github link: https://github.com/entireio/cli/issues/356\n\ni want you to scan that link for all of the data and then read the CLI/ codebase and come up with a possible explanation as to why this is happening including a root cause.\n\n---\n\nim noticing an issue that we default to creatign a .claude file when the agent isn't readily available in the repo when i run entire enable? is that right? for instance gemini doesn't always create a .gemini file in the repo, you can just run it.\n\n---\n\nyeah let's create an experience where if the user runs entire enable without the agent flag, we check the agents that we support: claude, gemini and if none of them are there, we "
+  },
+  {
+   "source": "commit_message",
+   "commit": "e592af2cb5",
+   "checkpoint": "bea7d0b9e7b8",
+   "text": "fix tests"
+  },
+  {
+   "source": "transcript",
+   "commit": "e592af2cb5",
+   "checkpoint": "bea7d0b9e7b8",
+   "text": "[assistant] howsPromptMessages` (line 1004) and `TestDetectOrSelectAgent_BothDirectoriesExist_PromptsUser` (line 1034) both set `ENTIRE_TEST_TTY=1` which makes `canPromptInteractively()` return `true`, and then `detectOrSelectAgent` calls `form.Run()`. The test relies on `form.Run()` failing because there's no real TTY. But this is flaky because:\n\n1. If run from a real terminal, `form.Run()` might actually try to render a TUI and block waiting for input\n\n\n2. Under ACCESSIBLE mode, the form might behave differently\n\nThe cleanest fix is to refactor `detectOrSelectAgent` to accept a function parameter that h\n[assistant] The feedback is asking for a cleaner architectural fix rather than just mocking. The key insight is: `detectOrSelectAgent` mixes two concerns - detection logic and interactive prompting. The suggestion is to pull agent selection out of `runEnableWithStrategy` and `runEnableInteractive` so they receive agents as a parameter, eliminating the TTY concern entirely for most tests.\n\nLet me think about the right approach:\n\n1. **Separate detection from prompting** - Make callers pass agents in, so `runEnableWithStrategy` and `runEnableInteractive` don't need to call `detectOrSelectAgent` internally.\n\n\n[user] ommitMsg, PostCommit\n   - Gemini hooks: BeforeAgent, AfterAgent\n   - TTY detection for interactive prompts\n   - `huh` library for interactive forms\n\n3. Files and Code Sections:\n   - **`cmd/entire/cli/setup.go`** - Main file modified\n     - Replaced hardcoded Claude Code hooks with generic agent hooks\n     - Added interactive agent selection when no agent detected\n     - Key changes:\n     ```go\n     // setupAgentHooks sets up hooks for a given agent.\n     func setupAgentHooks(ag agent.Agent, localDev, forceHooks bool) (int, error) { //nolint:unparam\n         hookAgent, ok := ag.(agent.HookSuppo"
+  },
+  {
+   "source": "prompt",
+   "commit": "e592af2cb5",
+   "checkpoint": "bea7d0b9e7b8",
+   "text": "you're on a PR right now that refactored the agent hook system to make it easier to add new agents. This is the PR: https://github.com/entireio/cli/pull/360. I want to add in support for codex from openai, here is the documentation:https://developers.openai.com/codex/changelog/?type=codex-cli. They mention hooks in this change log: https://developers.openai.com/codex/changelog/?type=codex-cli. Search to see if the hooks are ready to implement and what state they're in.\n\n---\n\nno not yet. i want to focus on another issue. somebody on github posted taht they were trying to use homebrew to install  our CLI:\n\nI installed entire using brew, but when I try running entire enable on a repo I see this dialog and it fails with zsh: killed     entire enable.\n\n\nand got a malware detection issue. \n\neval"
+  }
+ ],
+ "cost": {
+  "usd": 0.050519,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 148,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 12242
+ },
+ "trace_id": "be0486b7505a51816eaaa62cba937ab6",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,104 @@
+{
+ "issue": 1890,
+ "title": "Repo relocation silently loses commit trailers on 0.9.0: findSessionsForWorktree has no fallback when the recorded worktree path no longer exists (#1440 covers siblings only)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The evidence covers the sibling-worktree fallback and the WARN for ambiguous matches, and never mentions the case where the recorded worktree path no longer exists. The zero-match silent decline on relocation was not discussed or chosen; it is a gap in a fix scoped to siblings.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "da4607f413",
+  "files_named": 0,
+  "symbols_named": 4,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_session.go",
+    185,
+    237,
+    "func:findSessionsForWorktree"
+   ]
+  ],
+  "lines": 53,
+  "lines_linked": 53,
+  "checkpoints": 4
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "8dd3a0a048",
+   "checkpoint": "c8a3d493b515",
+   "text": "Match sessions across sibling worktrees"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a19d840952",
+   "checkpoint": "01KYAQV3Z2X1A2FTS5K5MXTT83",
+   "text": "fix(strategy): warn when ambiguous worktree sessions block commit linking\n\nWhen the sibling/parent worktree fallback finds live sessions but they\nspan multiple worktrees, it refuses to guess and the commit silently\nloses its Entire-Checkpoint linkage with only a DEBUG trace. Surface\nthat refusal at WARN with the candidate worktrees and a pointer to\n'entire session adopt' as the explicit remedy.\n\nRequested in #1852 alongside the matching fix that landed in #1440."
+  },
+  {
+   "source": "transcript",
+   "commit": "a19d840952",
+   "checkpoint": "01KYAQV3Z2X1A2FTS5K5MXTT83",
+   "text": "[assistant] codex/agents/` files.\n\n**What issue #1852 reports:** commits made in a linked worktree get no `Entire-Checkpoint` trailer when the session started in a *different worktree of the same repo*, because `findSessionsForWorktree` matches `state.WorktreePath == worktreePath` by exact string equality. I verified that exact-match code is still on latest main at `cmd/entire/cli/strategy/manual_commit_session.go:160` — so the bug is real and unfixed.\n\n**The three related pieces of prior work:**\n\n1. **PR #1472 (merged 2026-06-30)** — `entire session adopt --from <path>`. Manual, per-session, and *moves* \n[assistant] and merge state BLOCKED**, so it needs work before it can land regardless.\n\n**What you'd still need from #1440 after merging #1777 — basically all of it:**\n\n- **The same-common-dir fallback match in `findSessionsForWorktree`.** This is the core fix, and it's worth noting that function has **five call sites** in `manual_commit_hooks.go` (prepare-commit-msg trailer, post-commit condensation, and three others) — so #1852's silent loss isn't just the trailer, it's condensation too. Fixing the match fixes all five at once; an adopt-based approach only patches the commit path.\n- **The parent-repo/`.\n[assistant] ll exists on the remote (`8dd3a0a04`).\n- I ran a dry-run merge (`git merge-tree`) against current main: **it merges cleanly, zero conflicts**, despite the ~6-week-old merge-base. The PR only touches `manual_commit_session.go` (+83) and one new test file (+250), so the footprint is small.\n- Reopening (vs. opening a fresh PR) preserves the PR history and the Bugbot review context, and per your convention you'd update it with a merge commit from main rather than rebasing.\n\nOne caveat: a clean *textual* merge doesn't guarantee semantic fit — a month of strategy changes landed (context params, sess"
+  },
+  {
+   "source": "prompt",
+   "commit": "a19d840952",
+   "checkpoint": "01KYAQV3Z2X1A2FTS5K5MXTT83",
+   "text": "did we address this https://github.com/entireio/cli/pull/1440#discussion_r3424810003\n\n---\n\nokay it's been merged now then, so shoudl reply again on the ticket right\n\n---\n\nokay so should we do this now? the warn?"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7665237a13",
+   "checkpoint": "01KYAMA82R9G99GNGYAPQ0D1CT",
+   "text": "fix(strategy): address review feedback on worktree session matching\n\n- Refuse fallback matches spanning distinct worktrees (parent tier\n  included), while keeping concurrent sessions from a single worktree\n  matchable — consistent with exact-match semantics\n- Strip GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE when resolving another\n  worktree's common dir, so hook-exported vars can't redirect discovery\n- Return the committing worktree's common-dir resolution error instead\n  of swallowing it (callers already treat errors as a non-fatal skip)\n- Memoize per-path common-dir lookups to avoid one git subprocess per\n  session state"
+  },
+  {
+   "source": "transcript",
+   "commit": "7665237a13",
+   "checkpoint": "01KYAMA82R9G99GNGYAPQ0D1CT",
+   "text": "[assistant] codex/agents/` files.\n\n**What issue #1852 reports:** commits made in a linked worktree get no `Entire-Checkpoint` trailer when the session started in a *different worktree of the same repo*, because `findSessionsForWorktree` matches `state.WorktreePath == worktreePath` by exact string equality. I verified that exact-match code is still on latest main at `cmd/entire/cli/strategy/manual_commit_session.go:160` — so the bug is real and unfixed.\n\n**The three related pieces of prior work:**\n\n1. **PR #1472 (merged 2026-06-30)** — `entire session adopt --from <path>`. Manual, per-session, and *moves* \n[assistant] and merge state BLOCKED**, so it needs work before it can land regardless.\n\n**What you'd still need from #1440 after merging #1777 — basically all of it:**\n\n- **The same-common-dir fallback match in `findSessionsForWorktree`.** This is the core fix, and it's worth noting that function has **five call sites** in `manual_commit_hooks.go` (prepare-commit-msg trailer, post-commit condensation, and three others) — so #1852's silent loss isn't just the trailer, it's condensation too. Fixing the match fixes all five at once; an adopt-based approach only patches the commit path.\n- **The parent-repo/`.\n[assistant] ll exists on the remote (`8dd3a0a04`).\n- I ran a dry-run merge (`git merge-tree`) against current main: **it merges cleanly, zero conflicts**, despite the ~6-week-old merge-base. The PR only touches `manual_commit_session.go` (+83) and one new test file (+250), so the footprint is small.\n- Reopening (vs. opening a fresh PR) preserves the PR history and the Bugbot review context, and per your convention you'd update it with a merge commit from main rather than rebasing.\n\nOne caveat: a clean *textual* merge doesn't guarantee semantic fit — a month of strategy changes landed (context params, sess"
+  },
+  {
+   "source": "prompt",
+   "commit": "7665237a13",
+   "checkpoint": "01KYAMA82R9G99GNGYAPQ0D1CT",
+   "text": "hi make sure you're on latest main, but this issue was just filed and i think i basically have resolved this in the past, https://github.com/entireio/cli/issues/1852 - like there's this https://github.com/entireio/cli/pull/1472 which remedies the symptom but i swear there was something else that i created that detected and still tracked when your agent switched worktrees while you were in an agent session - there was this, https://github.com/entireio/cli/pull/1440 but it was closed? can you check please\n\n---\n\nwhat do you think of if we merge 1777? then what do we need from 1440?\n\n---\n\nokay so what you're saying if im understanding correctly is that 1440 will fix the issue that the user is describing and 1777 does nothing? Also, does the adopt do anyhting for thsi bug at all?\n\n---\n\nokay so "
+  },
+  {
+   "source": "commit_message",
+   "commit": "54325302a4",
+   "checkpoint": "01KYANAB0TPCF5ZYYJW7HV4WM3",
+   "text": "fix(strategy): keep BaseCommit updates exact-match only on trailer-less commits\n\npostCommitUpdateBaseCommitOnly rewrites BaseCommit to the committing\nworktree's HEAD, which is only correct for sessions recorded in that\nworktree — a sibling session's HEAD didn't move, and rewriting its base\norphans its shadow branch (keyed by BaseCommit + WorktreeID). Route the\nno-trailer path through a new exact-match-only lookup so the sibling\nfallback never feeds base-commit mutation.\n\nThe trailer path keeps the fallback: a fallback trailer only exists\nbecause that session passed PrepareCommitMsg content validation."
+  },
+  {
+   "source": "transcript",
+   "commit": "54325302a4",
+   "checkpoint": "01KYANAB0TPCF5ZYYJW7HV4WM3",
+   "text": "[assistant] codex/agents/` files.\n\n**What issue #1852 reports:** commits made in a linked worktree get no `Entire-Checkpoint` trailer when the session started in a *different worktree of the same repo*, because `findSessionsForWorktree` matches `state.WorktreePath == worktreePath` by exact string equality. I verified that exact-match code is still on latest main at `cmd/entire/cli/strategy/manual_commit_session.go:160` — so the bug is real and unfixed.\n\n**The three related pieces of prior work:**\n\n1. **PR #1472 (merged 2026-06-30)** — `entire session adopt --from <path>`. Manual, per-session, and *moves* \n[assistant] and merge state BLOCKED**, so it needs work before it can land regardless.\n\n**What you'd still need from #1440 after merging #1777 — basically all of it:**\n\n- **The same-common-dir fallback match in `findSessionsForWorktree`.** This is the core fix, and it's worth noting that function has **five call sites** in `manual_commit_hooks.go` (prepare-commit-msg trailer, post-commit condensation, and three others) — so #1852's silent loss isn't just the trailer, it's condensation too. Fixing the match fixes all five at once; an adopt-based approach only patches the commit path.\n- **The parent-repo/`.\n[assistant] ll exists on the remote (`8dd3a0a04`).\n- I ran a dry-run merge (`git merge-tree`) against current main: **it merges cleanly, zero conflicts**, despite the ~6-week-old merge-base. The PR only touches `manual_commit_session.go` (+83) and one new test file (+250), so the footprint is small.\n- Reopening (vs. opening a fresh PR) preserves the PR history and the Bugbot review context, and per your convention you'd update it with a merge commit from main rather than rebasing.\n\nOne caveat: a clean *textual* merge doesn't guarantee semantic fit — a month of strategy changes landed (context params, sess"
+  },
+  {
+   "source": "prompt",
+   "commit": "54325302a4",
+   "checkpoint": "01KYANAB0TPCF5ZYYJW7HV4WM3",
+   "text": "its fine to nto comment\n\n---\n\nokay so you pusehd then\n\n---\n\ncan we take this out of draft and find the trail and ptu the trai llink back in the pr body and gave this synced too?\n\n---\n\ncan all the pr comments be resolved\n\n---\n\ni already did ti\n\n---\n\nokay i'll send in slakc, i'll say like 1440 - fixes where  active session is recorded against one worktree but commits happen from a sibling worktree in the same git repository.\n\n---\n\nhigh finding on trail, please see"
+  }
+ ],
+ "cost": {
+  "usd": 0.029567,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 128,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 7054
+ },
+ "trace_id": "c51bc4075c28ffb937c669fa285208c2",
+ "error": null,
+ "trace_spans": 6
+}

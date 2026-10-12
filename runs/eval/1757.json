@@ -1,0 +1,212 @@
+{
+ "issue": 1757,
+ "title": "`protected_dirs` not excluded from checkpoint snapshots (external protocol-v1 plugin and built-in claude-code)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence shows protected dirs were deliberately added for rewind and untracked collection, and collectChangedFiles was rewritten to use git CLI for performance and gitignore compatibility, filtering only `.entire/` via IsInfrastructurePath. Nothing indicates anyone chose to let agent protected dirs be captured on the first checkpoint; it was simply never considered.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "f12a526cb3",
+  "files_named": 6,
+  "symbols_named": 10,
+  "spans": 7,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/common.go",
+    353,
+    360,
+    "func:isProtectedPath"
+   ],
+   [
+    "cmd/entire/cli/state.go",
+    234,
+    255,
+    "func:shouldIgnoreSessionTrackingPath"
+   ],
+   [
+    "cmd/entire/cli/state.go",
+    266,
+    316,
+    "func:DetectFileChanges"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/ephemeral.go",
+    1209,
+    1311,
+    "func:collectChangedFiles"
+   ],
+   [
+    "cmd/entire/cli/paths/paths.go",
+    137,
+    139,
+    "func:IsInfrastructurePath"
+   ],
+   [
+    "cmd/entire/cli/agent/registry.go",
+    208,
+    229,
+    "func:AllProtectedDirs"
+   ],
+   [
+    "cmd/entire/cli/agent/registry.go",
+    232,
+    257,
+    "func:AllProtectedFiles"
+   ]
+  ],
+  "lines": 235,
+  "lines_linked": 139,
+  "checkpoints": 14
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "23e74ce7b5",
+   "checkpoint": "c70a9ea6d74f",
+   "text": "Generalize OpenCode file exclusion in session tracking"
+  },
+  {
+   "source": "prompt",
+   "commit": "23e74ce7b5",
+   "checkpoint": "c70a9ea6d74f",
+   "text": "can you help me understand this again: \n\n\t// OpenCode uses a repo-root config file in addition to its protected\n\t// directory. If pre-prompt state is missing, this file would otherwise be\n\t// misattributed as agent work and keep shadow branches alive.\n\n---\n\nbut I've never seen an opencode.json in root? can you also check the opencode source ../../research/opencode/ why it would do that?\n\n---\n\nBUt wouldn't be the better fix then to let our e2e test add in .opencode/opencode.json? I'm mostly worried that a specific agent detail bleeds into state.go\n\n---\n\nyeah let's build ProtectedFiles() interface now\n\n---\n\nwhat if an external agent implements this now? will we break them with this interface change?\n\n---\n\nok, let's do it then\n\n---\n\nhttps://www.youtube.com/watch?v=lL--M_s5UTA\n\n---\n\nHere's my "
+  },
+  {
+   "source": "commit_message",
+   "commit": "771f1ca859",
+   "checkpoint": "6beaf3327136",
+   "text": "perf: consolidate git status calls in stop hook\n\nCombine ComputeNewFiles and ComputeDeletedFiles into single\nComputeFileChanges function that calls worktree.Status() once\ninstead of twice. This reduces stop hook latency by ~40-80ms\nin repos with 400+ files."
+  },
+  {
+   "source": "transcript",
+   "commit": "771f1ca859",
+   "checkpoint": "6beaf3327136",
+   "text": "[assistant] iles (D) remain in checkpoint tree \n3. **Quoted filenames** - special chars like spaces cause quoted output that isn't parsed\n\n**Bot feedback (Copilot) - 4 issues:**\n1. **Stale comment at line 89-91** - says \"worktree.Status()\" but code now uses `git status --porcelain` which DOES respect global gitignore\n2. **Context not passed** - `collectChangedFiles` should accept and use caller's context\n3. **Porcelain parsing not robust** - recommends `-z` for NUL-separated output\n4. **Missing status codes** - same as Bugbot about R/C/T/U codes\n\nLet me verify whether these concerns are technically valid.\n[assistant] Now let me evaluate each piece of feedback:\n\n**1. Stale comment (line 89-91)** - ✅ Valid. The comment says \"worktree.Status()\" but we now use `git status --porcelain` which respects global gitignore. Easy fix.\n\n**2. Context not passed** - ✅ Valid. `collectChangedFiles` creates `context.Background()` instead of accepting the caller's context.\n\n**3. Renamed files (R/C)** - Let me check if this is actually a concern in practice.\n[assistant] So the concern about deleted files IS valid. If a user deletes a tracked file before starting a session, the first checkpoint would NOT record that deletion because:\n1. `collectChangedFiles` skips deleted files (status `D`)\n2. The `DeletedFiles` parameter only contains files the agent deleted\n3. The base tree from HEAD contains the deleted file\n\nThis means rewinding would restore a file the user had intentionally deleted.\n\n**5. Quoted filenames** - Let me verify.\n[assistant] I see that `DeletedFiles` is passed to `buildTreeWithChanges`. For the first checkpoint, this would contain only files the agent deleted during the session, not files the user deleted before the session started.\n\nNow let me understand how the function signature should change. The `collectChangedFiles` function should return both changed files AND deleted files so that first checkpoint captures user's pre-existing deletions."
+  },
+  {
+   "source": "prompt",
+   "commit": "771f1ca859",
+   "checkpoint": "6beaf3327136",
+   "text": "let's respond to the PR feedback\n\n---\n\nBase directory for this skill: /Users/alex/.claude/plugins/cache/claude-plugins-official/superpowers/4.1.1/skills/receiving-code-review\n\n# Code Review Reception\n\n## Overview\n\nCode review requires technical evaluation, not emotional performance.\n\n**Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.\n\n## The Response Pattern\n\n```\nWHEN receiving code review feedback:\n\n1. READ: Complete feedback without reacting\n2. UNDERSTAND: Restate requirement in own words (or ask)\n3. VERIFY: Check against codebase reality\n4. EVALUATE: Technically sound for THIS codebase?\n5. RESPOND: Technical acknowledgment or reasoned pushback\n6. IMPLEMENT: One item at a time, test each\n```\n\n## Forbidden Responses\n\n**NEVER:**\n"
+  },
+  {
+   "source": "commit_message",
+   "commit": "8c67f69bb1",
+   "checkpoint": "0786501cea6f",
+   "text": "Ignore OpenCode setup files in session tracking"
+  },
+  {
+   "source": "prompt",
+   "commit": "8c67f69bb1",
+   "checkpoint": "0786501cea6f",
+   "text": "can you commit?"
+  },
+  {
+   "source": "commit_message",
+   "commit": "9be6e9f313",
+   "checkpoint": "1625afa7101c",
+   "text": "add protected dirs to agent interface"
+  },
+  {
+   "source": "transcript",
+   "commit": "9be6e9f313",
+   "checkpoint": "1625afa7101c",
+   "text": "[assistant] All clean. Here's what changed:\n\n**`common.go`**:\n- Removed `claudeDir = \".claude\"` constant\n- Added `protectedDirs = []string{gitDir, entireDir, \".claude\", \".gemini\"}` — a single source of truth for protected directories\n- Added `isProtectedPath(relPath)` helper that checks if a path is inside any protected dir\n- Replaced the inline check in `collectUntrackedFiles()` with `isProtectedPath()`\n\n**`manual_commit_rewind.go`**:\n- Replaced inline checks in both `Rewind()` and `PreviewRewind()` with `isProtectedPath()`\n\nThe inline checks were duplicated three times with slightly different formatting\n[assistant] The user is asking about issue #3, but looking at the changes I just made, `collectUntrackedFiles()` in `common.go` already uses `isProtectedPath()` which includes `.gemini` in the `protectedDirs` slice. So this was already fixed as part of issue #2.\n[assistant] All clean. Here's what changed:\n\n**`agent/agent.go`** — Added `ProtectedDirs() []string` to the `Agent` interface\n\n**`agent/registry.go`** — Added `AllProtectedDirs()` that iterates all registered agents and returns the deduplicated union of their protected dirs\n\n**`agent/claudecode/claude.go`** — Returns `[\".claude\"]`\n\n**`agent/geminicli/gemini.go`** — Returns `[\".gemini\"]`\n\n**`strategy/common.go`** — `protectedDirs()` is now a function that combines static dirs (`.git`, `.entire`) with `agent.AllProtectedDirs()`. Adding a new agent with its own config directory automatically gets protection \n[assistant] The user wants tests for the new functionality. Let me think about what to test:\n\n1. `SessionFileExtension()` - Claude returns `.jsonl`, Gemini returns `.json`\n2. `ProtectedDirs()` - Claude returns `[\".claude\"]`, Gemini returns `[\".gemini\"]`\n3. `AllProtectedDirs()` - returns the union from all registered agents\n4. `isProtectedPath()` - tests the path matching logic\n5. `resolveAgentForRewind()` - tests fallback to default agent\n\nLet me check existing test files to follow patterns."
+  },
+  {
+   "source": "prompt",
+   "commit": "9be6e9f313",
+   "checkpoint": "1625afa7101c",
+   "text": "can you check: what would happen on rewind for a gemini checkpoint, would we run the right code with the right logs to the right place or is this still claude centric?\n\n---\n\nyeah let's do the fix for 1 first\n\n---\n\nok, let's fix the ending next, what would you propose?\n\n---\n\nyes, let's do that\n\n---\n\nnow handle: \n\n  2. .gemini/ directory not protected during rewind (MEDIUM)\n\n  common.go:191 defines only claudeDir = \".claude\" for skip/protect lists. During rewind file deletion, .gemini/ (which may contain settings.json) is not protected and could be deleted if it wasn't present at checkpoint time.\n\n---\n\n3. .gemini/ not skipped in collectUntrackedFiles() (LOW)\n\n  Gemini's config directory would get collected as untracked files at session start - benign but unnecessary.\n\n---\n\nhow much effort wo"
+  },
+  {
+   "source": "commit_message",
+   "commit": "941f75974d",
+   "checkpoint": "e26858f99834",
+   "text": "fix: handle R/C status correctly when new path is infrastructure\n\n- Move R/C handling before infrastructure path check to ensure old name\n  entry is always skipped, even if new name is an infrastructure path\n- Use git mv in rename test to ensure R status (not D+A)"
+  },
+  {
+   "source": "transcript",
+   "commit": "941f75974d",
+   "checkpoint": "e26858f99834",
+   "text": "[assistant] iles (D) remain in checkpoint tree \n3. **Quoted filenames** - special chars like spaces cause quoted output that isn't parsed\n\n**Bot feedback (Copilot) - 4 issues:**\n1. **Stale comment at line 89-91** - says \"worktree.Status()\" but code now uses `git status --porcelain` which DOES respect global gitignore\n2. **Context not passed** - `collectChangedFiles` should accept and use caller's context\n3. **Porcelain parsing not robust** - recommends `-z` for NUL-separated output\n4. **Missing status codes** - same as Bugbot about R/C/T/U codes\n\nLet me verify whether these concerns are technically valid.\n[assistant] Now let me evaluate each piece of feedback:\n\n**1. Stale comment (line 89-91)** - ✅ Valid. The comment says \"worktree.Status()\" but we now use `git status --porcelain` which respects global gitignore. Easy fix.\n\n**2. Context not passed** - ✅ Valid. `collectChangedFiles` creates `context.Background()` instead of accepting the caller's context.\n\n**3. Renamed files (R/C)** - Let me check if this is actually a concern in practice.\n[assistant] So the concern about deleted files IS valid. If a user deletes a tracked file before starting a session, the first checkpoint would NOT record that deletion because:\n1. `collectChangedFiles` skips deleted files (status `D`)\n2. The `DeletedFiles` parameter only contains files the agent deleted\n3. The base tree from HEAD contains the deleted file\n\nThis means rewinding would restore a file the user had intentionally deleted.\n\n**5. Quoted filenames** - Let me verify.\n[assistant] I see that `DeletedFiles` is passed to `buildTreeWithChanges`. For the first checkpoint, this would contain only files the agent deleted during the session, not files the user deleted before the session started.\n\nNow let me understand how the function signature should change. The `collectChangedFiles` function should return both changed files AND deleted files so that first checkpoint captures user's pre-existing deletions."
+  },
+  {
+   "source": "prompt",
+   "commit": "941f75974d",
+   "checkpoint": "e26858f99834",
+   "text": "let's respond to the PR feedback\n\n---\n\nBase directory for this skill: /Users/alex/.claude/plugins/cache/claude-plugins-official/superpowers/4.1.1/skills/receiving-code-review\n\n# Code Review Reception\n\n## Overview\n\nCode review requires technical evaluation, not emotional performance.\n\n**Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.\n\n## The Response Pattern\n\n```\nWHEN receiving code review feedback:\n\n1. READ: Complete feedback without reacting\n2. UNDERSTAND: Restate requirement in own words (or ask)\n3. VERIFY: Check against codebase reality\n4. EVALUATE: Technically sound for THIS codebase?\n5. RESPOND: Technical acknowledgment or reasoned pushback\n6. IMPLEMENT: One item at a time, test each\n```\n\n## Forbidden Responses\n\n**NEVER:**\n"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e383bb67ce",
+   "checkpoint": "b4b052c197de",
+   "text": "refactor: use git CLI for collectChangedFiles in checkpoint\n\nSwitch from go-git's worktree.Status() to native git CLI commands for\ncollecting changed files during checkpoint creation. This ensures full\ngitignore compatibility including global gitignore (core.excludesfile).\n\nKey changes:\n- Use `git status --porcelain -uall` to get all changed files\n- Set cmd.Dir to repo root for correct execution in test environments\n- Rename inner `worktree` variable to `wtStatus` to avoid shadowing\n\nThis aligns with the safety approach used in PR #129 for other git\noperations where go-git has known issues."
+  },
+  {
+   "source": "transcript",
+   "commit": "e383bb67ce",
+   "checkpoint": "b4b052c197de",
+   "text": "[assistant] Good question. Let me verify:\n\n1. `.git/` - Git internally excludes its own directory from status, so `worktree.Status()` never returns `.git/*` files\n2. `.entire/` - We filter it with `paths.IsInfrastructurePath(file)` in `collectChangedFiles`\n[assistant] So:\n- `.git/` is excluded by git automatically - `worktree.Status()` never returns `.git/*`\n- `.entire/` is explicitly filtered by `paths.IsInfrastructurePath()` in `collectChangedFiles`\n\nThe constants are indeed no longer needed. Let me remove them:\n[assistant] kedFiles`   - `TestWriteTemporary_FirstCheckpoint_ExcludesGitIgnoredFiles`   - `TestWriteTemporary_FirstCheckpoint_UserAndAgentChanges`3. Replaced `collectWorkingDirectoryFiles()` (slow filesystem walk) with `collectChangedFiles()` (fast git status)4. The fix:   - Uses `worktree.Status()` which respects `.gitignore`\n   - Captures modified tracked files (`git.Modified`)\n   - Captures untracked non-ignored files (`git.Untracked`)\n   - Excludes `.entire/` via `paths.IsInfrastructurePath()`\n   - `.git/` is excluded automatically by git\n\nAll tests pass, lint passes. The performance fix is complete.\n[assistant] Temporary_FirstCheckpoint_UserAndAgentChanges` - verifies both user and agent changes are captured together\n\n### Performance Fix\nReplaced `collectWorkingDirectoryFiles()` (slow filesystem walk) with `collectChangedFiles()`:\n\n| Before | After |\n|--------|-------|\n| `filepath.Walk` entire repo | `worktree.Status()` |\n| Only skips `.git/`, `.entire/` | Respects `.gitignore` |\n| Includes `node_modules/`, `.worktrees/` | Excludes gitignored files |\n| O(n) where n = all files | O(m) where m = changed files |\n\nThe fix captures:\n- Modified tracked files (`git.Modified`)\n- Untracked non-ignored files ("
+  },
+  {
+   "source": "prompt",
+   "commit": "e383bb67ce",
+   "checkpoint": "b4b052c197de",
+   "text": "Base directory for this skill: /Users/alex/.claude/plugins/cache/claude-plugins-official/superpowers/4.1.1/skills/systematic-debugging\n\n# Systematic Debugging\n\n## Overview\n\nRandom fixes waste time and create new bugs. Quick patches mask underlying issues.\n\n**Core principle:** ALWAYS find root cause before attempting fixes. Symptom fixes are failure.\n\n**Violating the letter of this process is violating the spirit of debugging.**\n\n## The Iron Law\n\n```\nNO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST\n```\n\nIf you haven't completed Phase 1, you cannot propose fixes.\n\n## When to Use\n\nUse for ANY technical issue:\n- Test failures\n- Bugs in production\n- Unexpected behavior\n- Performance problems\n- Build failures\n- Integration issues\n\n**Use this ESPECIALLY when:**\n- Under time pressure (emergencies m"
+  },
+  {
+   "source": "commit_message",
+   "commit": "505ad9517f",
+   "checkpoint": "c8eb75535511",
+   "text": "safer locking"
+  },
+  {
+   "source": "transcript",
+   "commit": "505ad9517f",
+   "checkpoint": "c8eb75535511",
+   "text": "[assistant] All clean. Here's what changed:\n\n**`common.go`**:\n- Removed `claudeDir = \".claude\"` constant\n- Added `protectedDirs = []string{gitDir, entireDir, \".claude\", \".gemini\"}` — a single source of truth for protected directories\n- Added `isProtectedPath(relPath)` helper that checks if a path is inside any protected dir\n- Replaced the inline check in `collectUntrackedFiles()` with `isProtectedPath()`\n\n**`manual_commit_rewind.go`**:\n- Replaced inline checks in both `Rewind()` and `PreviewRewind()` with `isProtectedPath()`\n\nThe inline checks were duplicated three times with slightly different formatting\n[assistant] The user is asking about issue #3, but looking at the changes I just made, `collectUntrackedFiles()` in `common.go` already uses `isProtectedPath()` which includes `.gemini` in the `protectedDirs` slice. So this was already fixed as part of issue #2.\n[assistant] All clean. Here's what changed:\n\n**`agent/agent.go`** — Added `ProtectedDirs() []string` to the `Agent` interface\n\n**`agent/registry.go`** — Added `AllProtectedDirs()` that iterates all registered agents and returns the deduplicated union of their protected dirs\n\n**`agent/claudecode/claude.go`** — Returns `[\".claude\"]`\n\n**`agent/geminicli/gemini.go`** — Returns `[\".gemini\"]`\n\n**`strategy/common.go`** — `protectedDirs()` is now a function that combines static dirs (`.git`, `.entire`) with `agent.AllProtectedDirs()`. Adding a new agent with its own config directory automatically gets protection \n[assistant] The user wants tests for the new functionality. Let me think about what to test:\n\n1. `SessionFileExtension()` - Claude returns `.jsonl`, Gemini returns `.json`\n2. `ProtectedDirs()` - Claude returns `[\".claude\"]`, Gemini returns `[\".gemini\"]`\n3. `AllProtectedDirs()` - returns the union from all registered agents\n4. `isProtectedPath()` - tests the path matching logic\n5. `resolveAgentForRewind()` - tests fallback to default agent\n\nLet me check existing test files to follow patterns."
+  },
+  {
+   "source": "prompt",
+   "commit": "505ad9517f",
+   "checkpoint": "c8eb75535511",
+   "text": "can you check: what would happen on rewind for a gemini checkpoint, would we run the right code with the right logs to the right place or is this still claude centric?\n\n---\n\nyeah let's do the fix for 1 first\n\n---\n\nok, let's fix the ending next, what would you propose?\n\n---\n\nyes, let's do that\n\n---\n\nnow handle: \n\n  2. .gemini/ directory not protected during rewind (MEDIUM)\n\n  common.go:191 defines only claudeDir = \".claude\" for skip/protect lists. During rewind file deletion, .gemini/ (which may contain settings.json) is not protected and could be deleted if it wasn't present at checkpoint time.\n\n---\n\n3. .gemini/ not skipped in collectUntrackedFiles() (LOW)\n\n  Gemini's config directory would get collected as untracked files at session start - benign but unnecessary.\n\n---\n\nhow much effort wo"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e2a83f9a1b",
+   "checkpoint": "8f1ff20e510f",
+   "text": "add .gemini to protected paths, make the handling more generic (but not perfect)"
+  },
+  {
+   "source": "transcript",
+   "commit": "e2a83f9a1b",
+   "checkpoint": "8f1ff20e510f",
+   "text": "[assistant] t.Agent` field is available but ignored. A Gemini logs-only rewind writes the transcript to Claude's directory instead of Gemini's.\n\n### 2. `.gemini/` directory not protected during rewind (MEDIUM)\n\n`common.go:191` defines only `claudeDir = \".claude\"` for skip/protect lists. During rewind file deletion, `.gemini/` (which may contain `settings.json`) is not protected and could be deleted if it wasn't present at checkpoint time.\n\n### 3. `.gemini/` not skipped in `collectUntrackedFiles()` (LOW)\n\nGemini's config directory would get collected as untracked files at session start - benign but unneces\n[user] now handle: \n\n  2. .gemini/ directory not protected during rewind (MEDIUM)\n\n  common.go:191 defines only claudeDir = \".claude\" for skip/protect lists. During rewind file deletion, .gemini/ (which may contain settings.json) is not protected and could be deleted if it wasn't present at checkpoint time.\n[assistant] All clean. Here's what changed:\n\n**`common.go`**:\n- Removed `claudeDir = \".claude\"` constant\n- Added `protectedDirs = []string{gitDir, entireDir, \".claude\", \".gemini\"}` — a single source of truth for protected directories\n- Added `isProtectedPath(relPath)` helper that checks if a path is inside any protected dir\n- Replaced the inline check in `collectUntrackedFiles()` with `isProtectedPath()`\n\n**`manual_commit_rewind.go`**:\n- Replaced inline checks in both `Rewind()` and `PreviewRewind()` with `isProtectedPath()`\n\nThe inline checks were duplicated three times with slightly different formatting"
+  },
+  {
+   "source": "prompt",
+   "commit": "e2a83f9a1b",
+   "checkpoint": "8f1ff20e510f",
+   "text": "can you check: what would happen on rewind for a gemini checkpoint, would we run the right code with the right logs to the right place or is this still claude centric?\n\n---\n\nyeah let's do the fix for 1 first\n\n---\n\nok, let's fix the ending next, what would you propose?\n\n---\n\nyes, let's do that\n\n---\n\nnow handle: \n\n  2. .gemini/ directory not protected during rewind (MEDIUM)\n\n  common.go:191 defines only claudeDir = \".claude\" for skip/protect lists. During rewind file deletion, .gemini/ (which may contain settings.json) is not protected and could be deleted if it wasn't present at checkpoint time."
+  }
+ ],
+ "cost": {
+  "usd": 0.043701,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 161,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 10505
+ },
+ "trace_id": "69604e891b25f680f30962d631d242b7",
+ "error": null,
+ "trace_spans": 6
+}

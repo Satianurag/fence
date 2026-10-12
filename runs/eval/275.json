@@ -1,0 +1,101 @@
+{
+ "issue": 275,
+ "title": "Checkpoint data not pushed when agent commits and pushes in the same turn",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "decision",
+  "confidence": 0.75,
+  "rationale": "The evidence shows deferring condensation to turn end for sessions committed while ACTIVE was deliberately designed: a commit fixed dropped condensation so it is dispatched at TurnEnd, and another stores PendingCheckpointID so turn-end condensation matches the commit trailer. The ordering relative to pre-push is a consequence of that design, not mentioned as a concern.",
+  "quotes": [
+   {
+    "evidence_id": 1,
+    "source": "commit_message",
+    "commit": "97ce79e96b",
+    "checkpoint": "db3f4ae57df0",
+    "quote": "Add TurnEndHandler optional interface and implement it on\nManualCommitStrategy to dispatch deferred condensation at turn end."
+   },
+   {
+    "evidence_id": 4,
+    "source": "commit_message",
+    "commit": "b5e924cd40",
+    "checkpoint": "1c5eb527b36d",
+    "quote": "didn't store PendingCheckpointID, so HandleTurnEnd generated a new ID\n   that mismatched the commit trailer. Now stored during migration."
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "60c8ff592d",
+  "files_named": 0,
+  "symbols_named": 9,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    1456,
+    1479,
+    "func:HandleTurnEnd"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    1482,
+    1554,
+    "func:handleTurnEndCondense"
+   ]
+  ],
+  "lines": 97,
+  "lines_linked": 97,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "97ce79e96b",
+   "checkpoint": "db3f4ae57df0",
+   "text": "Fix deferred condensation: dispatch remaining actions on TurnEnd\n\ntransitionSessionTurnEnd() was ignoring the return value of\nApplyCommonActions(), so ActionCondense emitted by the\nACTIVE_COMMITTED → IDLE transition was silently dropped. Session data\nfrom in-turn commits stayed stuck on the shadow branch.\n\nAdd TurnEndHandler optional interface and implement it on\nManualCommitStrategy to dispatch deferred condensation at turn end."
+  },
+  {
+   "source": "transcript",
+   "commit": "97ce79e96b",
+   "checkpoint": "db3f4ae57df0",
+   "text": "[assistant] t me discuss this with you.\n\n---\n\nHere's a summary of the one unaddressed review comment on PR #172:\n\n## Thread: cursor[bot] — Condensation failure orphans shadow branch (Medium Severity)\n\n**File:** `manual_commit_hooks.go:621-623`\n\n**Claim:** When `condenseAndUpdateState()` returns `false` (condensation failed), `condensed` stays `false` and `hasPendingMigration` stays `false`, so line 621 (`if !condensed && !hasPendingMigration`) evaluates true and calls `updateBaseCommitIfChanged()`. This updates `state.BaseCommit` to the new HEAD, but the shadow branch is still named with the **old** BaseC\n[assistant] The user is asking about test coverage for the PostCommit processing logic in `manual_commit_hooks.go`, specifically the action dispatch loop around lines 580-634. Let me check what tests exist.\n[assistant] All done. Here's a summary:\n\n**Commit:** `eafc9512` (pushed)\n\n**Bug fix** (`manual_commit_hooks.go`):\n- Eliminated the fallthrough pattern — each action branch now handles its own `BaseCommit` update\n- Removed `condensed` and `hasPendingMigration` booleans and the fallthrough conditional block\n- On condensation failure, `BaseCommit` is preserved so the shadow branch remains accessible\n- Added `logging.Warn` for condensation failures (was only printing to stderr before)\n- Changed `condenseAndUpdateState` return type from `bool` to void (return value no longer needed)\n\n**Test coverage** (`phase_"
+  },
+  {
+   "source": "prompt",
+   "commit": "97ce79e96b",
+   "checkpoint": "db3f4ae57df0",
+   "text": "Base directory for this skill: /Users/alex/.claude/skills/github-pr-review\n\n# GitHub PR Review\n\n## Overview\n\nTechnical mechanics for GitHub PR review workflows via `gh` CLI. Covers fetching review comments, replying to threads, creating/updating PRs.\n\n**Companion skill:** For *how to evaluate* feedback, see `superpowers:receiving-code-review`. This skill covers *how to interact* with GitHub.\n\n**Security:** Use fine-grained PAT with minimal permissions.\n\n## Setup (One-Time)\n\n### Fine-Grained PAT\n\nCreate at github.com -> Settings -> Developer settings -> Personal access tokens -> Fine-grained tokens:\n\n| Permission | Level |\n|------------|-------|\n| Pull requests | Read & Write |\n| Contents | Read |\n\n**Can't:** Delete repos, push code, delete branches, manage settings.\n\n### Configure & Allowl"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b5e924cd40",
+   "checkpoint": "1c5eb527b36d",
+   "text": "Fix checkpoint ID mismatch and unsafe shadow branch deletion at turn-end\n\nTwo bugs found by cursor[bot] review:\n\n1. PostCommit's ActionMigrateShadowBranch path (ACTIVE → ACTIVE_COMMITTED)\n   didn't store PendingCheckpointID, so HandleTurnEnd generated a new ID\n   that mismatched the commit trailer. Now stored during migration.\n\n2. handleTurnEndCondense deleted shadow branches without checking for other\n   active sessions, unlike PostCommit which gates deletion on\n   activeSessionsOnBranch. Added hasOtherActiveSessionsOnBranch check."
+  },
+  {
+   "source": "transcript",
+   "commit": "b5e924cd40",
+   "checkpoint": "1c5eb527b36d",
+   "text": "[user] n. Follow the action\n  dispatch pattern in the plan. Key integration points:\n  1. hooks.go — handleSessionStartCommon(): call Transition(phase, EventSessionStart, ctx), dispatch actions\n  2. strategy/manual_commit_hooks.go — InitializeSession(): call Transition(phase, EventUserPromptSubmit, ctx), set phase\n  3. hooks_claudecode_handlers.go — Stop handler (commitWithMetadata): call Transition(phase, EventStop, ctx), condense if\n  ACTIVE_COMMITTED→IDLE\n  4. hooks_claudecode_handlers.go — markSessionEnded() or equivalent: call Transition(phase, EventSessionStop, ctx)\n  5. All hook handlers: dispa\n[assistant] Good. Now I understand the testing patterns. Let me think about what I need to do:\n\n1. The key changes are at these integration points:\n   - `InitializeSession()` in `strategy/manual_commit_hooks.go` - call `Transition(phase, EventTurnStart)`, set phase\n   - `markSessionEnded()` in `hooks_claudecode_handlers.go` - call `Transition(phase, EventSessionStop)`, set phase\n   - `commitWithMetadata()` in `hooks_claudecode_handlers.go` - call `Transition(phase, EventTurnEnd)`, dispatch actions\n   - `handleSessionStartCommon()` in `hooks.go` - call `Transition(phase, EventSessionStart)`, dispatch actio\n[user] to Hooks)\n   - Read review notes at docs/plans/2026-02-06-session-phase-review-notes.md\n   - Wire the session.Transition() function into hook handlers\n   - Key integration points specified: hooks.go, manual_commit_hooks.go, hooks_claudecode_handlers.go\n   - Write tests first (TDD)\n   - Run mise run fmt && mise run lint && mise run test:ci before considering complete\n   - Use superpowers:execute-plan\n\n2. I read both plan files and review notes to understand the full context.\n\n3. I tried to create a branch but the user rejected saying \"we already on a branch, double check parent\". I verified the"
+  },
+  {
+   "source": "prompt",
+   "commit": "b5e924cd40",
+   "checkpoint": "1c5eb527b36d",
+   "text": "Branch off alex/ent-221-type-consolidation for PR 2 of ENT-221.\n\n  Read the plan at docs/plans/2026-02-06-session-phase-state-machine-v2.md — specifically Task 4: Wire State Machine into Hooks. Also\n  read the review notes at docs/plans/2026-02-06-session-phase-review-notes.md for context on design decisions (no TTL, no catch-up\n  checkpoints, defer file locking).\n\n  What's already done (PR 1):\n  - cmd/entire/cli/session/phase.go — Pure Transition(phase, event, ctx) function with all states/events/actions\n  - session.State has Phase, PendingCheckpointID, LastInteractionTime fields\n  - strategy.SessionState is now a type alias for session.State (no more converter functions)\n  - CheckpointTranscriptStart replaces CondensedTranscriptLines/TranscriptLinesAtStart in session state\n  - StepTransc"
+  }
+ ],
+ "cost": {
+  "usd": 0.021553,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 289,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4648
+ },
+ "trace_id": "cdc7f9e0ccf6e8ab7d1c387bf106149c",
+ "error": null,
+ "trace_spans": 6
+}

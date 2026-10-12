@@ -1,0 +1,116 @@
+{
+ "issue": 1635,
+ "title": "git-refs: push queue is drained by the first successful push — checkpoints never reach a second remote",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence shows deliberate choices about batch pushing, non-force refspecs, and removing only refs that landed. Nothing in it addresses multiple remotes or chose to drain the queue on the first successful push. Queue removal was designed around a single push target, and the multi-remote gap was never considered.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "a4b3f756ff",
+  "files_named": 3,
+  "symbols_named": 2,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_push.go",
+    145,
+    239,
+    "func:prePushCheckpointRefs"
+   ]
+  ],
+  "lines": 95,
+  "lines_linked": 95,
+  "checkpoints": 4
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "7fa01ba284",
+   "checkpoint": "7ca5586da108",
+   "text": "Push git-refs checkpoints from pre-push via the discovery queue\n\nWhen the configured primary is git-refs, PrePush drains the push-discovery queue\nand batch force-pushes those per-checkpoint refs (one git push, +ref:ref force\nrefspecs — independent histories, no fetch+rebase recovery) instead of pushing\nthe v1 branch. Default config (git-branch) is unchanged.\n\n- partitionLocalRefs drops stale queue entries (refs deleted locally); surviving\n  refs are removed from the queue only on a confirmed push, so a failed/transient\n  push leaves them for the next pre-push and never blocks the user's git push.\n- Shared post-push shadow cleanup extracted to cleanupPushedShadowBranches.\n\nA configured git-branch mirror's v1 ref is not pushed here yet (downgrade-safety\nmirror push is later), and OPF stays descoped for git-refs."
+  },
+  {
+   "source": "transcript",
+   "commit": "7fa01ba284",
+   "checkpoint": "7ca5586da108",
+   "text": "[assistant] Confirmed the key gap: `ResolveRefs(ctx)` still ignores config and always returns `DefaultV1Refs()`, and **push/OPF in `strategy/manual_commit_push.go` call it directly** — they bypass the store to learn what to push. That's the seam the refs work has to change.\n\n## Revised plan (corrected for the reframe)\n\nI was steering toward the wrong config surface. Your \"git refs is a git backend?\" + the **\"Reframe backend taxonomy\"** commit settle it: the new `gitBacked` capability + the one-of-each-type rule were built *specifically* so `git-refs` can be a **primary** and `git-branch` can mirror alongs\n[user] </note>\n<result>Perfect! Now I have enough information. Let me compile the comprehensive report:\n\n---\n\n## PUSH/FETCH MACHINERY MAPPING — ENTIRE CLI\n\n### 1. **PrePush Flow** — `cmd/entire/cli/strategy/manual_commit_push.go`\n\n**Function signature (lines 33–124):**\n```go\nfunc (s *ManualCommitStrategy) PrePush(ctx context.Context, remote string) error\n```\n\n**Full body flow:**\n1. **Lines 38–40:** `resolvePushSettings(ctx, remote)` — resolves push config once (remote name, checkpoint URL, push_disabled flag)\n2. **Lines 42–44:** Early return if `pushDisabled` flag is true (skips all push work)\n3. **L\n[assistant] Now wire the branch into `PrePush` and add the `prePushCheckpointRefs` method:\n[assistant] t-refs store** | `treeWriter` extraction + `gitRefsStore` + registry | `persistent.go`, `refs_store.go` (+tests) |\n| **C — push/fetch** | push queue, config-aware pre-push, on-demand ref fetch, `refs-v1` read policy | `pushqueue.go`, `manual_commit_push.go`, resume/explain wiring |\n| **D — e2e/CI matrix** | backend-aware testutil, `E2E_CHECKPOINT_STORE`, env override, workflow | `e2e/testutil`, `settings/checkpoints.go`, CI |\n\nLet me build **PR A** now (small, clean, additive on main — lifting the exact `ShardFor`/`Kind()` I removed in #1546, which is already written against main's oklog API)."
+  },
+  {
+   "source": "prompt",
+   "commit": "7fa01ba284",
+   "checkpoint": "7ca5586da108",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "6ba80842a0",
+   "checkpoint": "5ac4c261b57a",
+   "text": "Recover a diverged checkpoint ref by fetch+replay instead of leaving it queued\n\nBuild on the non-force push: when a per-checkpoint ref is rejected (it diverged\non the remote — the same checkpoint re-written elsewhere), instead of just\nleaving it queued, fetch the remote ref and replay the local-only commits on top\nvia the existing fetchAndRebaseRefCommon, then retry. The retry stays non-force\n(after the replay the local ref is a fast-forward over the remote), so the\nremote's commit is preserved as an ancestor, never overwritten. The cherry-pick\nis delta-based, so non-overlapping changes merge; a genuine overlap (both sides\nrewrote the same file) surfaces as a rebase error and the ref is left for a later\npre-push — degrading to the previous safe behavior, never to a force overwrite.\n\npre-push keeps the batch push as the fast path (one round-trip when everything\nfast-forwards) and falls back to this per-ref recovery only for rejected refs,\nremoving from the queue just those that land. Adds a test proving a diverged ref\nends up with both the remote-only and local-only changes after recovery."
+  },
+  {
+   "source": "transcript",
+   "commit": "6ba80842a0",
+   "checkpoint": "5ac4c261b57a",
+   "text": "[assistant] Confirmed the key gap: `ResolveRefs(ctx)` still ignores config and always returns `DefaultV1Refs()`, and **push/OPF in `strategy/manual_commit_push.go` call it directly** — they bypass the store to learn what to push. That's the seam the refs work has to change.\n\n## Revised plan (corrected for the reframe)\n\nI was steering toward the wrong config surface. Your \"git refs is a git backend?\" + the **\"Reframe backend taxonomy\"** commit settle it: the new `gitBacked` capability + the one-of-each-type rule were built *specifically* so `git-refs` can be a **primary** and `git-branch` can mirror alongs\n[user] </note>\n<result>Perfect! Now I have enough information. Let me compile the comprehensive report:\n\n---\n\n## PUSH/FETCH MACHINERY MAPPING — ENTIRE CLI\n\n### 1. **PrePush Flow** — `cmd/entire/cli/strategy/manual_commit_push.go`\n\n**Function signature (lines 33–124):**\n```go\nfunc (s *ManualCommitStrategy) PrePush(ctx context.Context, remote string) error\n```\n\n**Full body flow:**\n1. **Lines 38–40:** `resolvePushSettings(ctx, remote)` — resolves push config once (remote name, checkpoint URL, push_disabled flag)\n2. **Lines 42–44:** Early return if `pushDisabled` flag is true (skips all push work)\n3. **L\n[assistant] Now wire the branch into `PrePush` and add the `prePushCheckpointRefs` method:\n[assistant] t-refs store** | `treeWriter` extraction + `gitRefsStore` + registry | `persistent.go`, `refs_store.go` (+tests) |\n| **C — push/fetch** | push queue, config-aware pre-push, on-demand ref fetch, `refs-v1` read policy | `pushqueue.go`, `manual_commit_push.go`, resume/explain wiring |\n| **D — e2e/CI matrix** | backend-aware testutil, `E2E_CHECKPOINT_STORE`, env override, workflow | `e2e/testutil`, `settings/checkpoints.go`, CI |\n\nLet me build **PR A** now (small, clean, additive on main — lifting the exact `ShardFor`/`Kind()` I removed in #1546, which is already written against main's oklog API)."
+  },
+  {
+   "source": "prompt",
+   "commit": "6ba80842a0",
+   "checkpoint": "5ac4c261b57a",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a4b3f756ff",
+   "checkpoint": "f55c74d61baf",
+   "text": "git-refs pre-push: show push progress instead of a silent stall\n\nThe git-refs pre-push path pushed the queued checkpoint refs via batchPushRefs\nwith no output, so pushing a large backlog (e.g. a freshly migrated repo) looked\nlike git had hung for 30+ seconds while `git push` reported only \"Everything up\nto date\" for the branch.\n\nMirror the v1-branch path's progress line: print \"[entire] Pushing N checkpoint\nref(s) to <target>...\" with the shared startProgressDots ticker to stderr (which\ngit surfaces during the pre-push hook), and a \" done\" / \"pushed X of N\" suffix.\nThe per-ref fetch+replay recovery path gets its own progress line too."
+  },
+  {
+   "source": "transcript",
+   "commit": "a4b3f756ff",
+   "checkpoint": "f55c74d61baf",
+   "text": "[user] ern (fetch+rebase on non-fast-forward). This is intentional and correct — checkpoint refs reuse the shared recovery infrastructure rather than reimplementing it.\n\n**No action needed.**\n\n---\n\n### 2. **prePushCheckpointRefs batch-then-per-ref loop (manual_commit_push.go, lines 187-195)**\n\n**Finding:** APPROPRIATE PATTERN - No duplication detected.\n\nThe per-ref loop in `prePushCheckpointRefs()` is a bespoke orchestration for checkpoint refs:\n- Lines 187-195: Per-ref push with recovery + selective queue removal\n- No existing helper loops this pattern across all strategy code\n\nThe only other per-re\n[user] herent per-ref overhead that is acceptable for a cold path, but there is one real inefficiency to flag.**\n\n### Finding 1: Redundant push work when batch divergence occurs (ACCEPTABLE)\n\n**Location:** `manual_commit_push.go:188-195`\n\nWhen the batch push fails, the code re-pushes every ref individually:\n```go\nfor _, ref := range existing {\n    if err := pushCheckpointRefWithRecovery(pushCtx, ps.pushTarget(), ref); err != nil {\n        // ...\n        continue\n    }\n    pushed = append(pushed, ref)\n}\n```\n\nEach `pushCheckpointRefWithRecovery` calls `batchPushRefs(ctx, target, []plumbing.ReferenceNam\n[user] n checkpointPushBudget); `partitionLocalRefs`; `tryPushRefCommon` — **flipped non-branch refspec from `\"+\"+ref+\":\"+ref` to `ref.String()+\":\"+ref.String()`** (non-force).\n   - `cmd/entire/cli/strategy/manual_commit_push.go` — `prePushCheckpointRefs`: batch fast-path, on rejection per-ref `pushCheckpointRefWithRecovery`, remove only landed refs; imports `plumbing`.\n   - `cmd/entire/cli/strategy/refs_push_test.go` — tests: AllowsFastForward, RejectsNonFastForward (orphan commit), MergesDivergedRef (recovery), mustRefName/remoteRefHash/remoteRefFiles helpers.\n   - `cmd/entire/cli/explain_export.go"
+  },
+  {
+   "source": "prompt",
+   "commit": "a4b3f756ff",
+   "checkpoint": "f55c74d61baf",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7816aaeeca",
+   "checkpoint": "602319d6087b",
+   "text": "Reconcile git-refs branch with main after rebase\n\nTwo integration points shifted on main during the rebase:\n\n- syncCheckpointPolicyForPrePush was refactored to a void sync (taking the repo)\n  plus a separate checkpointPolicyAllowsGitHook(ctx, repo) decision. Adapt the\n  git-refs pre-push path to the new two-call shape (open repo → sync → allow-gate)\n  instead of the old bool-returning signature.\n\n- main added several tests that use \"refs-v1\" as the canonical unsupported /\n  future checkpoint_version sentinel. This branch makes refs-v1 a *supported*\n  read/write format, so those sentinels must move to the next unsupported\n  version, refs-v2: the CLI policy-print, explain-reject, agent-hook-skip, and\n  the checkpointpolicy CanSatisfy / UnsupportedPolicyMessage tests. Also renamed\n  the export test helper rewriteExportCheckpointVersionToRefsV1 →\n  ...ToRefsV2 to match the version it already writes."
+  },
+  {
+   "source": "transcript",
+   "commit": "7816aaeeca",
+   "checkpoint": "602319d6087b",
+   "text": "[user] ern (fetch+rebase on non-fast-forward). This is intentional and correct — checkpoint refs reuse the shared recovery infrastructure rather than reimplementing it.\n\n**No action needed.**\n\n---\n\n### 2. **prePushCheckpointRefs batch-then-per-ref loop (manual_commit_push.go, lines 187-195)**\n\n**Finding:** APPROPRIATE PATTERN - No duplication detected.\n\nThe per-ref loop in `prePushCheckpointRefs()` is a bespoke orchestration for checkpoint refs:\n- Lines 187-195: Per-ref push with recovery + selective queue removal\n- No existing helper loops this pattern across all strategy code\n\nThe only other per-re\n[user] herent per-ref overhead that is acceptable for a cold path, but there is one real inefficiency to flag.**\n\n### Finding 1: Redundant push work when batch divergence occurs (ACCEPTABLE)\n\n**Location:** `manual_commit_push.go:188-195`\n\nWhen the batch push fails, the code re-pushes every ref individually:\n```go\nfor _, ref := range existing {\n    if err := pushCheckpointRefWithRecovery(pushCtx, ps.pushTarget(), ref); err != nil {\n        // ...\n        continue\n    }\n    pushed = append(pushed, ref)\n}\n```\n\nEach `pushCheckpointRefWithRecovery` calls `batchPushRefs(ctx, target, []plumbing.ReferenceNam\n[user] n checkpointPushBudget); `partitionLocalRefs`; `tryPushRefCommon` — **flipped non-branch refspec from `\"+\"+ref+\":\"+ref` to `ref.String()+\":\"+ref.String()`** (non-force).\n   - `cmd/entire/cli/strategy/manual_commit_push.go` — `prePushCheckpointRefs`: batch fast-path, on rejection per-ref `pushCheckpointRefWithRecovery`, remove only landed refs; imports `plumbing`.\n   - `cmd/entire/cli/strategy/refs_push_test.go` — tests: AllowsFastForward, RejectsNonFastForward (orphan commit), MergesDivergedRef (recovery), mustRefName/remoteRefHash/remoteRefFiles helpers.\n   - `cmd/entire/cli/explain_export.go"
+  },
+  {
+   "source": "prompt",
+   "commit": "7816aaeeca",
+   "checkpoint": "602319d6087b",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  }
+ ],
+ "cost": {
+  "usd": 0.034053,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 131,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 8168
+ },
+ "trace_id": "0dcb74b401695767ef9ed715a5f21e6b",
+ "error": null,
+ "trace_spans": 6
+}

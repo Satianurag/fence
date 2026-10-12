@@ -1,0 +1,131 @@
+{
+ "issue": 601,
+ "title": "Refactor hasTTY() to use optional agent interface for non-interactive subprocess detection",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "decision",
+  "confidence": 0.85,
+  "rationale": "The hardcoded per-agent env var checks in hasTTY() were deliberately added one at a time (Gemini, Droid, Copilot), each with explicit reasoning that these subprocesses inherit the TTY but can't respond to prompts. The issue asks for a refactor of this design, but the reported behavior (hardcoded checks) was chosen on purpose.",
+  "quotes": [
+   {
+    "evidence_id": 10,
+    "source": "commit_message",
+    "commit": "1df71eb2e3",
+    "checkpoint": "edbda7258ea5",
+    "quote": "Like Gemini CLI, the subprocess may inherit the user's\nTTY but can't respond to interactive prompts."
+   },
+   {
+    "evidence_id": 7,
+    "source": "commit_message",
+    "commit": "8e9c62e8c6",
+    "checkpoint": "9b106c8acecb",
+    "quote": "Respect GIT_TERMINAL_PROMPT=0 as a non-interactive\nsignal since we run as a git hook"
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "1df71eb2e3",
+  "files_named": 1,
+  "symbols_named": 6,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    44,
+    78,
+    "func:hasTTY"
+   ]
+  ],
+  "lines": 35,
+  "lines_linked": 35,
+  "checkpoints": 4
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "f07c3054bb",
+   "checkpoint": "02d49af5bfe0",
+   "text": "better handling of mid agent session commits"
+  },
+  {
+   "source": "transcript",
+   "commit": "f07c3054bb",
+   "checkpoint": "02d49af5bfe0",
+   "text": "[assistant] th:\n```sh\nentire hooks git prepare-commit-msg \"$1\" \"$2\"\n#                                    file  \"message\"\n```\n\nSo `source = \"message\"` in real life.\n\n## Why this matters: the switch statement\n\nIn `manual_commit_hooks.go:391-418`, the trailer is added differently based on source:\n\n```go\nswitch {\ncase source == \"message\" && !isRestoringExisting:\n    // THIS IS THE REAL PATH - asks user interactively via /dev/tty\n    if !askConfirmTTY(\"Link this commit to \"+string(agentType)+\" session context?\", ..., true) {\n        return nil  // No trailer added!\n    }\n    message = addCheckpointTrailer(mess\n[assistant] You're right to expect that. Let me look at what `isRestoringExisting` actually checks — the intent is partially there but the detection misses this case.\n\n`manual_commit_hooks.go:377-388`:\n\n```go\nisRestoringExisting := false\nif !hasNewContent && reusedSession != nil {\n    // Reusing LastCheckpointID from a previous condensation\n    isRestoringExisting = true\n} else if hasNewContent {\n    for _, state := range sessionsWithContent {\n        if state.PendingCheckpointID != \"\" {\n            isRestoringExisting = true\n            break\n        }\n    }\n}\n```\n\nIt only detects:\n1. Reusing a `LastChec\n[assistant] Here's a summary of the changes:\n\n**Production code** (`manual_commit_hooks.go`):\n- `hasTTY()` — checks if `/dev/tty` is available. Returns false for agent subprocesses (no controlling terminal)\n- Early fast path in `PrepareCommitMsg`: if `!hasTTY()` and any session is `ACTIVE`, calls `addTrailerForAgentCommit` which generates a checkpoint ID and adds the trailer directly, bypassing all content detection and TTY prompts\n- `askConfirmTTY` also respects `ENTIRE_TEST_HAS_TTY` to avoid blocking in tests\n\n**Test infrastructure** (`testenv.go`):\n- `GitCommitWithShadowHooks` now passes `source=\"messa"
+  },
+  {
+   "source": "prompt",
+   "commit": "f07c3054bb",
+   "checkpoint": "02d49af5bfe0",
+   "text": "can you look through the tests, we should have one that validates commits during a session (made by claude) are getting checkpoint trailers and condension works, or? should be integration tests?\n\n---\n\nhere is the thing now: When I do a test repo and run the following prompt \"can you create a ruby script that returns a random number, then commit that and then change the color of the ouput to red and commit that change too\" then claude would do as told and create two commits but they don't have a trailer. From you analysis this should make TestShadow_CommitBeforeStop fail, but it doesn't?\n\n---\n\nfor 1. I would expect we actually have that code already, don't we?\n\n---\n\nI'm struggling a bit to understand this. What does \"isRestoringExisting\" have to do with this, can you give a bit more context"
+  },
+  {
+   "source": "commit_message",
+   "commit": "19cca30b5c",
+   "checkpoint": "92fa97b54f7d",
+   "text": "make sure we handle called by gemini as if no tty is available"
+  },
+  {
+   "source": "transcript",
+   "commit": "19cca30b5c",
+   "checkpoint": "92fa97b54f7d",
+   "text": "[assistant] Now let me check the remaining comments in auto_commit.go and manual_commit_hooks.go.\n[assistant] tcommit_test.go`\n   - `resume_test.go`\n\n6. **Updated integration tests:**\n   - `subdirectory_test.go` - Function name updated\n   - `mid_session_rebase_test.go` - Comments updated\n   - `attribution_test.go` - Comments updated\n   - `manual_commit_workflow_test.go` - Comments updated\n\n7. **Updated documentation:**\n   - `CLAUDE.md` - Strategy interface documentation\n   - `GEMINI.md` - Strategy interface documentation\n\n8. **Updated code comments throughout:**\n   - `manual_commit_migration.go`\n   - `manual_commit_condensation.go`\n   - `manual_commit_hooks.go`\n\nAll tests pass. The rename is complete.\n[assistant] ns and helper signatures\n- `lifecycle.go` - Caller updated to use new types/methods\n- `hooks_claudecode_posttodo.go` - Caller updated\n- `manual_commit_migration.go`, `manual_commit_condensation.go`, `manual_commit_hooks.go` - Comments updated\n- All test files updated (`auto_commit_test.go`, `manual_commit_test.go`, `manual_commit_staging_test.go`, `phase_postcommit_test.go`, `resume_test.go`)\n- Integration tests updated (`subdirectory_test.go`, `mid_session_rebase_test.go`, `attribution_test.go`, `manual_commit_workflow_test.go`)\n- Documentation updated (`CLAUDE.md`, `GEMINI.md`)\n\nAll tests pa\n[assistant] can't provide.\n\nThe fix should be in the hook itself. Looking at the code, the issue is this logic (line 275-281):\n\n```go\n// Fast path: when an agent is committing (ACTIVE session + no TTY), skip\nif !hasTTY() {\n    for _, state := range sessions {\n        if state.Phase.IsActive() {\n            return s.addTrailerForAgentCommit(...)\n        }\n    }\n}\n```\n\nIt checks `!hasTTY()` first, but Gemini inherits the user's TTY, so `hasTTY()` returns true and the fast path is skipped.\n\nThe fix should be: if there's an ACTIVE session, skip interactive prompts regardless of TTY availability - the agent ca"
+  },
+  {
+   "source": "prompt",
+   "commit": "19cca30b5c",
+   "checkpoint": "92fa97b54f7d",
+   "text": "can you continue with the PLAN.md\n\n---\n\ncan you do Phase 4c next?\n\n---\n\nThis session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nAnalysis:\nLet me analyze the conversation chronologically:\n\n1. **Initial Request**: User asked to \"continue with the PLAN.md\"\n\n2. **PLAN.md Analysis**: I read PLAN.md which contained a 5-phase plan for evolving the Agent interface:\n   - Phase 1: Define Event Types and New Agent Interface (completed)\n   - Phase 2: Build Generic Lifecycle Dispatcher (completed)\n   - Phase 3: Migrate Agents (completed)\n   - Phase 4: Clean Up and Rename (in progress)\n   - Phase 5: Documentation and Contributor Guide\n\n3. **Phase 4 Work**: The main work was Phase 4 (Clean Up and Rename), whi"
+  },
+  {
+   "source": "commit_message",
+   "commit": "8e9c62e8c6",
+   "checkpoint": "9b106c8acecb",
+   "text": "fix: respect GIT_TERMINAL_PROMPT=0 in hasTTY() to prevent Droid hang\n\nFactory AI Droid sets GIT_TERMINAL_PROMPT=0 for shell commands but has\nno agent-specific env var. When Droid runs `git commit`, the\nprepare-commit-msg hook's hasTTY() returns true (subprocess can open\n/dev/tty), causing askConfirmTTY() to block waiting for input Droid\ncan't provide. Respect GIT_TERMINAL_PROMPT=0 as a non-interactive\nsignal since we run as a git hook — this also benefits CI systems."
+  },
+  {
+   "source": "transcript",
+   "commit": "8e9c62e8c6",
+   "checkpoint": "9b106c8acecb",
+   "text": "[user] llowing plan:\n\n# Fix: Factory AI Droid TTY hang during git commit\n\n## Context\n\nWhen Factory AI Droid is told to commit code, `git commit -m \"...\"` triggers the `prepare-commit-msg` hook, which calls `hasTTY()` to decide whether to show an interactive y/n/a prompt. Droid's subprocess can open `/dev/tty` (so `hasTTY()` returns `true`), but Droid can't actually respond to the prompt — causing a hang/timeout.\n\nThis is the **exact same issue** Gemini CLI had, fixed by checking `GEMINI_CLI=1` in `hasTTY()` (PR #430).\n\n## The Hang Flow\n\n1. User tells Droid \"commit this code\"\n2. Droid runs `git commit\n[assistant] All green — formatting, linting, and all tests (unit + integration) pass.\n\n`★ Insight ─────────────────────────────────────`\n**Why this fix is robust:** The `hasTTY()` function acts as a cascading guard chain. Each check is ordered by specificity: (1) test override (`ENTIRE_TEST_TTY`), (2) agent-specific env var (`GEMINI_CLI`), (3) generic non-interactive signal (`GIT_TERMINAL_PROMPT=0`), (4) actual TTY probe. By checking `GIT_TERMINAL_PROMPT=0` before the `/dev/tty` probe, we catch not just Droid but any CI system or non-interactive tool that sets this standard git variable — making the fix f\n[user] hanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   cmd/entire/cli/strategy/manual_commit_hooks.go\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")\n- Current git diff (staged and unstaged changes): diff --git a/cmd/entire/cli/strategy/manual_commit_hooks.go b/cmd/entire/cli/strategy/manual_commit_hooks.go\nindex 185fa0d4..7df98af4 100644\n--- a/cmd/entire/cli/strategy/manual_commit_hooks.go\n+++ b/cmd/entire/cli/strategy/manual_commit_hooks.go\n@@ -50,6 +50,"
+  },
+  {
+   "source": "prompt",
+   "commit": "8e9c62e8c6",
+   "checkpoint": "9b106c8acecb",
+   "text": "Implement the following plan:\n\n# Fix: Factory AI Droid TTY hang during git commit\n\n## Context\n\nWhen Factory AI Droid is told to commit code, `git commit -m \"...\"` triggers the `prepare-commit-msg` hook, which calls `hasTTY()` to decide whether to show an interactive y/n/a prompt. Droid's subprocess can open `/dev/tty` (so `hasTTY()` returns `true`), but Droid can't actually respond to the prompt — causing a hang/timeout.\n\nThis is the **exact same issue** Gemini CLI had, fixed by checking `GEMINI_CLI=1` in `hasTTY()` (PR #430).\n\n## The Hang Flow\n\n1. User tells Droid \"commit this code\"\n2. Droid runs `git commit -m \"message\"`\n3. Git invokes `.git/hooks/prepare-commit-msg` → runs `entire hooks git prepare-commit-msg`\n4. Strategy calls `hasTTY()` → returns **true** (Droid subprocess can open `/"
+  },
+  {
+   "source": "commit_message",
+   "commit": "1df71eb2e3",
+   "checkpoint": "edbda7258ea5",
+   "text": "fix(strategy): detect COPILOT_CLI env var in hasTTY()\n\nCopilot CLI v0.0.421+ sets COPILOT_CLI=1 when running hook\nsubprocesses. Like Gemini CLI, the subprocess may inherit the user's\nTTY but can't respond to interactive prompts."
+  },
+  {
+   "source": "transcript",
+   "commit": "1df71eb2e3",
+   "checkpoint": "edbda7258ea5",
+   "text": "[assistant] hat's failing, and then check how the `COPILOT_CLI=1` env var could be used.\n\nThe agents found that:\n1. Recent test failures show a JavaScript parse error (corrupted Copilot CLI installation)\n2. The `hasTTY()` function checks for `GEMINI_CLI` env var to skip prompts\n3. There's no equivalent check for `COPILOT_CLI` env var\n\n\n4. When Copilot CLI runs git hooks as subprocesses, those hooks invoke the entire CLI which might attempt interactive prompts, so `COPILOT_CLI=1` could serve the same purpose as `GEMINI_CLI` to detect subprocess execution and suppress prompts.\n\nNow I need to examine the `ha\n[assistant] Good thinking. Let me check the actual `hasTTY()` function and the E2E artifacts to see how `COPILOT_CLI=1` fits in.\n[assistant] /.copilot/pkg/darwin-arm64/0.0.421/`** — the Copilot CLI binary itself can't load. Reinstalling/updating Copilot CLI should fix those.\n\n**But you're right that `COPILOT_CLI=1` is useful.** Currently `hasTTY()` detects Gemini CLI via `GEMINI_CLI` and Factory AI Droid via `GIT_TERMINAL_PROMPT=0`, but there's no Copilot CLI detection. In production (non-E2E), when Copilot CLI runs our git hooks as subprocesses, it may have access to `/dev/tty` (the user's terminal), which would make `hasTTY()` return `true` and trigger interactive prompts that Copilot CLI can't respond to.\n\nAdding `COPILOT_CLI=1`\n[assistant] Yes, it's in `cmd/entire/cli/strategy/manual_commit_hooks.go:44` — the production `hasTTY()` function. Same pattern as the Gemini CLI check.\n[assistant] Now let me update the test for `hasTTY()` to cover this.\n[assistant] The diagnostics are from other files on main that have changed - not related to my edit. Let me check the bench test to see the test pattern, and also look for a dedicated hasTTY test.\n[assistant] The diagnostics are from other files on main, not my edit. Let me check if there's a test for `hasTTY`."
+  },
+  {
+   "source": "prompt",
+   "commit": "1df71eb2e3",
+   "checkpoint": "edbda7258ea5",
+   "text": "let's resolve the conflicts from origin/main\n\n---\n\npush\n\n---\n\nBase directory for this skill: /Users/alex/.claude/plugins/cache/entire-internal/entire-internal/1.0.0/skills/github-pr-review\n\n# GitHub PR Review\n\nGitHub PR interaction via `gh` CLI. For *evaluating* feedback, use `superpowers:receiving-code-review`.\n\n## Commands\n\nScript paths are relative to this skill's base directory — resolve to full paths when invoking.\n\n### Review threads (inline code comments)\n\n| Operation | Command |\n|-----------|---------|\n| Get PR context | `pr-info` → `{owner_repo, number, author}` |\n| Unresolved threads | `pr-threads <owner/repo> <pr>` |\n| Threads needing response | `pr-threads <owner/repo> <pr> <author>` |\n| All threads (inc. resolved) | `pr-threads <owner/repo> <pr> --all` |\n| Read a thread | `pr-"
+  }
+ ],
+ "cost": {
+  "usd": 0.031429,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 267,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 7172
+ },
+ "trace_id": "2b3f75b9385c0a393049f63f9c6b14d4",
+ "error": null,
+ "trace_spans": 6
+}

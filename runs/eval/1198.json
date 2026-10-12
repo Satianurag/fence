@@ -1,0 +1,62 @@
+{
+ "issue": 1198,
+ "title": "summary_timeout_seconds is ignored by checkpoint explain --generate",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The commit added the SummaryTimeoutSeconds field and helper as groundwork, with wiring planned in later tasks (7-13). Nothing in the evidence shows that ignoring the setting in the generate path was chosen; it looks like incomplete wiring.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "1622abc553",
+  "files_named": 0,
+  "symbols_named": 3,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/settings/settings.go",
+    196,
+    201,
+    "func:SummaryTimeoutValue"
+   ]
+  ],
+  "lines": 6,
+  "lines_linked": 6,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "af50bbb940",
+   "checkpoint": "4dc60abd40b5",
+   "text": "feat(settings): add SummaryTimeoutSeconds field and SummaryTimeoutValue helper\n\nOptional override for `entire explain --generate` summary deadline. Treats\nunset / 0 / negative as \"caller picks default\" so the explain layer can\ndistinguish \"user explicitly chose a cap\" from \"use mode-based default\"."
+  },
+  {
+   "source": "transcript",
+   "commit": "af50bbb940",
+   "checkpoint": "4dc60abd40b5",
+   "text": "[user] the current implementation for 876, timeout for summary generation does not give users actionable insight and quits. I'd like to investigate whether the timeout is actually a good fix and if the summary fails, I want to tell the user why this happened instead of fail. I'm also wondering if the 30s is practical or not. When implemented, I thought the summary had already failed and prior, there was no timeout so user would endlessly wait on hanging summary generation, but not know why. I thought because claude cli API failed, and no summary would be created. PLease check current code path for su\n[assistant] Both Task 6 reviewers are running in background. I'll proceed with Task 7 as soon as they complete. Progress so far:\n\n| Task | Status |\n|---|---|\n| 1. Settings field | Committed `0f0f904a9` |\n| 2. Agent capability interface | Committed `b604c69da` |\n| 3. ClaudeError type | Committed `862d4e8f7` |\n| 4. Classifiers | Committed `7f6ca2192` |\n| 5. Stream parser + fixtures | Committed `61c55734f` |\n| 6. GenerateTextStreaming | Committed `8105def67` (reviews in progress) |\n| 7-13 | Pending (wiring + UX layer) |\n\nChunk 1 (foundation) is complete. Chunk 2 (wiring + UX) starts with Task 7 once reviews "
+  },
+  {
+   "source": "prompt",
+   "commit": "af50bbb940",
+   "checkpoint": "4dc60abd40b5",
+   "text": "the current implementation for 876, timeout for summary generation does not give users actionable insight and quits. I'd like to investigate whether the timeout is actually a good fix and if the summary fails, I want to tell the user why this happened instead of fail. I'm also wondering if the 30s is practical or not. When implemented, I thought the summary had already failed and prior, there was no timeout so user would endlessly wait on hanging summary generation, but not know why. I thought because claude cli API failed, and no summary would be created. PLease check current code path for summary generation. I have done some exlporation and have this potential plan with codex, take a look and let me know what you think, if you agree, how we can improve, so users have actionable, accurate"
+  }
+ ],
+ "cost": {
+  "usd": 0.012503,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 120,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 2808
+ },
+ "trace_id": "176b8ffcaeb120770e8d0d6a12d06de3",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,170 @@
+{
+ "issue": 1814,
+ "title": "explain --json masks post-resolution failures as 'checkpoint not found' (same conflation fixed in #1812 for the prose path)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers explain lookup changes (blob fetching, store facade refactors, ref fetching) but none of it mentions dropping `commitErr` or reporting post-resolution failures as 'checkpoint not found' on the --json prefix-miss path. Nobody chose that masking; it is an unaddressed gap.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "5ef8773d6b",
+  "files_named": 1,
+  "symbols_named": 4,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/explain_export.go",
+    126,
+    132,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/explain_export.go",
+    144,
+    179,
+    "func:resolveCheckpointFromCommitRef"
+   ],
+   [
+    "cmd/entire/cli/explain.go",
+    891,
+    925,
+    "func:newExplainCheckpointLookup"
+   ]
+  ],
+  "lines": 78,
+  "lines_linked": 38,
+  "checkpoints": 8
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "437768e2f4",
+   "checkpoint": "4790d9fad21c",
+   "text": "git: open repositories with alternates-aware storage\n\nShared clones can store required objects only through .git/objects/info/alternates. Several checkpoint paths opened repositories with plain go-git storage, so local-only checkpoint commits reachable through alternates could look missing. That made metadata rebase and push paths silently skip checkpoint data and leave remote checkpoint branches incomplete.\n\nAdd a gitrepo package that centralizes repository opening, resolves linked worktree .git/commondir layouts, and wires go-git's AlternatesFS so multiple and nested alternates are readable. Route repository openings across the CLI and shared test harnesses through that package so go-git sees the same object graph everywhere.\n\nAlso close repository handles after use. Upstream go-git requires callers to close repositories to release filesystem storage resources, so the shared opener documents ownership and call sites now defer Close or register test cleanup."
+  },
+  {
+   "source": "prompt",
+   "commit": "437768e2f4",
+   "checkpoint": "4790d9fad21c",
+   "text": "The TestFetchAndRebase_SharedCloneLocalCommitInAlternate confirms that local clones depending on alternates work. It is currently failing. This is due to the AlternateFS not being properly set on go-git. Make the test pass without changing the test. A copy of the go-git code can be found at ../go-git.\n\n---\n\nWe need to also support multiple alternates.\n\n---\n\nAre there other places in the code base that open repositories without using the OpenRepository logic?\n\n---\n\nCan those points use the new func or are we better off extracting that logic into a separate package?\n\n---\n\nLet's do that. Add a comment on the non-converted sites explaining the reasoning of not migrating now.\n\n---\n\nActually, let's get all repo opening points to call the new package instead. That's a cleaner change.\n\n---\n\nrepo c"
+  },
+  {
+   "source": "commit_message",
+   "commit": "758651632b",
+   "checkpoint": "a54a8052840d",
+   "text": "Fix explain review follow-ups"
+  },
+  {
+   "source": "transcript",
+   "commit": "758651632b",
+   "checkpoint": "a54a8052840d",
+   "text": "[assistant] ional arg to `explain`\n\n**Overall: Approve** — well-designed with careful error semantics and thorough tests.\n\n---\n\n### Important (Should Fix)\n\n**1. Double checkpoint listing on `--generate` path** (`explain.go:416-441`)\n\n`runExplainAutoAmbiguityGuard` calls `listCommittedForExplain`, and then the immediately-following `runExplainCheckpoint` calls it again. On `--generate`, this walks the entire `entire/checkpoints/v1` tree twice, deserializing every `metadata.json`. Consider either hoisting the list into `runExplainAuto` and passing it down, or doing the ambiguity check inside `runExplainChec\n[user] ckpoint ID or a commit ref. Keeps `--checkpoint` / `--commit` as explicit overrides. Also allows `--generate` / `--raw-transcript` in combination with `--commit` (previously refused). 582/-60 across `explain.go` + `explain_test.go`.\n\n### What's good\n\n- **Typed sentinels for routing**: `checkpoint.ErrCheckpointNotFound` and `errCannotGenerateTemporaryCheckpoint` cleanly encode \"no match → safe to fall back to commit\" vs \"temp matched but generate unsupported → don't fall back.\" This is a real improvement over substring-matching error text (which an earlier Codex review flagged).\n- **Ambiguity d\n[assistant] ckpoint ID or a commit ref. Keeps `--checkpoint` / `--commit` as explicit overrides. Also allows `--generate` / `--raw-transcript` in combination with `--commit` (previously refused). 582/-60 across `explain.go` + `explain_test.go`.\n\n**Verdict: Approve with minor follow-ups.**\n\n### PR comment status\n\nThe branch has 8 commits addressing prior review rounds. Here's where the original PR comments stand:\n\n| Reviewer | Comment | Status |\n|----------|---------|--------|\n| **pjbgf** | HashesWithPrefix for ambiguity detection | **Addressed** — `resolveCommitUnambiguous` + `commitHashesWithPrefix` impl"
+  },
+  {
+   "source": "prompt",
+   "commit": "758651632b",
+   "checkpoint": "a54a8052840d",
+   "text": "can you make a commit\n\n---\n\ncan you give me a short summary to post as a review comment on the PR?"
+  },
+  {
+   "source": "commit_message",
+   "commit": "645fb12527",
+   "checkpoint": "74b3190b7dfb",
+   "text": "fix(cli): make explain work against checkpoint_remote with partial-clone\n\n`entire explain <checkpoint-id>` failed with \"no checkpoint or commit\nfound\" when the metadata branch was on a configured `checkpoint_remote`\nbut blobs hadn't been fetched yet. Three coordinated fixes:\n\n1. v1Store now has a blob fetcher configured (the piece resume already\n   had via SetBlobFetcher). Without it, go-git's Tree.File() returns\n   ErrFileNotFound on a missing blob, which ReadCommitted translates to\n   ErrCheckpointNotFound — making it look like the checkpoint doesn't\n   exist when really only the blob is absent.\n\n2. FetchBlobs now uses `git fetch-pack` instead of porcelain\n   `git fetch`. Porcelain enforces partial-clone integrity checks that\n   reject blob-only responses with \"did not send all necessary objects\",\n   so `git fetch <url> <blob-sha>` always failed against GitHub for\n   repos with filtered_fetches enabled. Plumbing skips those checks and\n   just downloads the requested objects.\n\n3. FetchingTree.File now tries `git cat-file` BEFORE the network fetch.\n   In partial-clone repos a blob is commonly on disk but invisible to\n   go-git's storer (filtered out, or in a packfile not in the cached\n   index). Without the short-circuit, every File() burned a network\n   round-trip on already-local data — which compounded into per-File\n   25s SSH-handshake-and-rejection delays before this fix.\n\nThe matching empty-list fetch chain for explain now mirrors\nresume.getMetadataTree (checkpoint_remo"
+  },
+  {
+   "source": "transcript",
+   "commit": "645fb12527",
+   "checkpoint": "74b3190b7dfb",
+   "text": "[assistant] Let me add the helpers right before `newExplainCheckpointLookup`:\n[assistant] ves when configured), then treeless origin, then full origin fetch as last resort. Same chain as resume. Same pattern for v2 (`checkpoint_remote` → treeless → full).\n\nThe change is in `cmd/entire/cli/explain.go:495-509` (call sites) plus two new helpers `fetchV1MetadataWithFallback` / `fetchV2MetadataWithFallback`. `mise run fmt`, `mise run lint`, and the explain unit test suite all pass.\n\nTry `entire explain d3ee8d5b009f` again — if `checkpoint_remote` is set in `.entire/settings.json`, it'll be the first place we look. If it still fails, run with `ENTIRE_LOG_LEVEL=debug` and check `.entire/l\n[assistant] Now add the helper and drop the unused parameter from `newExplainCheckpointLookup`:\n[assistant] Now drop the unused `repo` parameter from `newExplainCheckpointLookup`:\n[assistant] \nblob, err := GetBlob(t.s, e.Hash)\nif err != nil {\n    if errors.Is(err, plumbing.ErrObjectNotFound) {\n        return nil, ErrFileNotFound  // ← blob missing → \"file not found\"!\n    }\n    ...\n}\n```\n\nWhen the blob is missing (treeless fetch leftover), go-git returns `ErrFileNotFound`, indistinguishable from \"file isn't in tree\". Our `ReadCommitted` treats this as \"checkpoint doesn't exist\".\n\nThe v1Store's `FetchingTree` has on-demand blob fetching, but only when `blobFetcher` is set. Explain's `newExplainCheckpointLookup` never calls `SetBlobFetcher`. Resume does configure one. Let me fix that:\n[assistant] If it works, the explain.go changes summarize as: (a) v1Store now has a blob fetcher configured (one line — the missing piece resume had), (b) batch-prefetch the cp subtree's blobs in one round-trip via PreFetch (mirrors resume's pattern), (c) fetch fallback chain matching resume's `getMetadataTree` for the case where the metadata branch isn't local at all. The git.go change is just better error capture (now includes git's stderr)."
+  },
+  {
+   "source": "prompt",
+   "commit": "645fb12527",
+   "checkpoint": "74b3190b7dfb",
+   "text": "is there a way through the git cli to only fetch by blob hash?\n\n---\n\n> GitHub's git protocol doesn't honor blob SHAs in `want` lines (only commit SHAs reachable from refs), so `git fetch <url> <blob-sha>` always fails\n\nis this sentence making any sense?\n\n---\n\ndoes any forge allow this?\n\n---\n\ncan you give me a command with which I could test this against GitHub?\n\n---\n\ncan you give me an example for the local git repo, that I can try this with real data?\n\n---\n\n❯   tmpdir=$(mktemp -d) &&\n  git -C \"$tmpdir\" init -q &&\n  git -C \"$tmpdir\" fetch-pack -v /Users/soph/Work/entire/devenv/cli_experiments 228bfe60a76e39a2d85e43259d2440ddb2f6bada\nwant 228bfe60a76e39a2d85e43259d2440ddb2f6bada (228bfe60a76e39a2d85e43259d2440ddb2f6bada)\nremote: Enumerating objects: 1, done.\nremote: Counting objects: 100% ("
+  },
+  {
+   "source": "commit_message",
+   "commit": "ae4b4e52c8",
+   "checkpoint": "7febd2b70c1f",
+   "text": "fix(cli): mirror partial-clone explain fix for v2 + add regression tests\n\nThe v1 fix in 645fb1252 left v2 vulnerable to the same bug: when a\nmetadata blob is on the remote but absent locally, V2GitStore's read\npath used raw `*object.Tree.File()` calls which return ErrFileNotFound\non missing blobs — and ReadCommitted treats that as \"checkpoint not\nfound\". This blocks `entire explain` against partial-clone repos as\nsoon as checkpoints_v2 is enabled.\n\nv2 fix mirrors v1:\n- V2GitStore gains `blobFetcher` + `SetBlobFetcher` (parallel to GitStore).\n- ReadCommitted, ReadSessionCompactTranscript, ReadSessionMetadataAndPrompts,\n  and ReadSessionContent now wrap their cp/session subtrees in\n  FetchingTree before calling File(). FetchingTree's cat-file fallback\n  + on-demand fetcher recover blobs that go-git's storer can't see.\n- explain configures FetchBlobsByHash on both v1 and v2 stores.\n- prefetchCheckpointBlobs walks both v1 and v2 cp subtrees so a single\n  fetch-pack round-trip primes both stores.\n\nRegression tests in cmd/entire/cli/integration_test/explain_test.go:\n- TestExplain_CheckpointSucceedsAfterTreelessFetch (v1)\n- TestExplain_CheckpointV2SucceedsAfterTreelessFetch (v2)\n\nBoth reproduce the bug-triggering state by:\n1. Pushing a checkpoint to a bare remote.\n2. Cloning into a fresh TempDir with `--filter=blob:none --depth=1` over\n   `file://` URL (uploadpack.allowFilter set on the bare). This gives\n   the clone tree entries but no blobs — the actual partial-clone state.\n3. Ass"
+  },
+  {
+   "source": "transcript",
+   "commit": "ae4b4e52c8",
+   "checkpoint": "7febd2b70c1f",
+   "text": "[assistant] Let me add the helpers right before `newExplainCheckpointLookup`:\n[assistant] ves when configured), then treeless origin, then full origin fetch as last resort. Same chain as resume. Same pattern for v2 (`checkpoint_remote` → treeless → full).\n\nThe change is in `cmd/entire/cli/explain.go:495-509` (call sites) plus two new helpers `fetchV1MetadataWithFallback` / `fetchV2MetadataWithFallback`. `mise run fmt`, `mise run lint`, and the explain unit test suite all pass.\n\nTry `entire explain d3ee8d5b009f` again — if `checkpoint_remote` is set in `.entire/settings.json`, it'll be the first place we look. If it still fails, run with `ENTIRE_LOG_LEVEL=debug` and check `.entire/l\n[assistant] Now add the helper and drop the unused parameter from `newExplainCheckpointLookup`:\n[assistant] Now drop the unused `repo` parameter from `newExplainCheckpointLookup`:\n[assistant] \nblob, err := GetBlob(t.s, e.Hash)\nif err != nil {\n    if errors.Is(err, plumbing.ErrObjectNotFound) {\n        return nil, ErrFileNotFound  // ← blob missing → \"file not found\"!\n    }\n    ...\n}\n```\n\nWhen the blob is missing (treeless fetch leftover), go-git returns `ErrFileNotFound`, indistinguishable from \"file isn't in tree\". Our `ReadCommitted` treats this as \"checkpoint doesn't exist\".\n\nThe v1Store's `FetchingTree` has on-demand blob fetching, but only when `blobFetcher` is set. Explain's `newExplainCheckpointLookup` never calls `SetBlobFetcher`. Resume does configure one. Let me fix that:\n[assistant] If it works, the explain.go changes summarize as: (a) v1Store now has a blob fetcher configured (one line — the missing piece resume had), (b) batch-prefetch the cp subtree's blobs in one round-trip via PreFetch (mirrors resume's pattern), (c) fetch fallback chain matching resume's `getMetadataTree` for the case where the metadata branch isn't local at all. The git.go change is just better error capture (now includes git's stderr)."
+  },
+  {
+   "source": "prompt",
+   "commit": "ae4b4e52c8",
+   "checkpoint": "7febd2b70c1f",
+   "text": "quick clarification question: is this working for v1 and v2 in the same way now?\n\n---\n\nyeah we need the fix for v2 too it should be enabled soon, lets implement this and make a follow up fix. \n\nI also wonder if we can craft a proper integration tests validating this and make sure it does not regress in the future\n\n---\n\nretry\n\n---\n\nretry"
+  },
+  {
+   "source": "commit_message",
+   "commit": "0747ca9b96",
+   "checkpoint": "c11527631d6b",
+   "text": "checkpoint: centralize store construction behind Open (Phase 0)\n\nReplace the scattered NewGitStore(repo, ResolveCommittedRefs(ctx))\nconstruction across cli, strategy, dispatch, and the in-package\nLookupSessionLog with a single seam: checkpoint.Open(ctx, repo,\nOpenOptions) (*Stores, error).\n\nThis lands the final facade signature now (issue #1433 Phase 0) so call\nsites migrate only once: Stores.Primary holds the concrete *GitStore\ntoday and the same instance backs Temporary(); later phases narrow\nPrimary to a pluggable committed-store interface and add\nindependent-backend mirrors without further call-site churn. The facade\nexposes Temporary()/Refs()/Repository() so callers no longer reach for\nthe concrete type, and OpenOptions carries the CLI-level BlobFetcher plus\nexplicit Settings/Refs overrides (attach keeps its injected-settings /\nPrimaryAsRead topology).\n\nPure mechanical, no behavior change.\n\nNotes:\n- getCheckpointStore now returns (*GitStore, error) (propagated through\n  its callers); the old withBlobFetcher folds into OpenOptions.BlobFetcher.\n- generateCheckpointSummary takes the facade since it needs both the\n  committed writer and Repository(); its mirror still resolves refs from\n  settings (ResolveCommittedRefs) to preserve exact behavior.\n- Type is checkpoint.Stores (not CheckpointStores) to avoid the revive\n  stutter; Open's always-nil error is the forward-looking facade contract.\n- benchutil and test files keep using NewGitStore, which Open wraps.\n\nRefs #1433"
+  },
+  {
+   "source": "transcript",
+   "commit": "0747ca9b96",
+   "checkpoint": "c11527631d6b",
+   "text": "[assistant] ed. (Plus ~131 test-file calls.)\n- **No `checkpoint.Open`, `CheckpointStores`, or `OpenOptions` exists yet** — all net-new.\n- The facade must carry: `BlobFetcher` (wired at 3 sites: `resume.go:191`, `explain.go:861`, `manual_commit.go:47`), and **non-read/write accessors** `store.Refs()` (6 sites) and `store.Repository()` (`explain.go:936`) so nothing type-asserts back to `*GitStore`.\n- **`attach` is the key exception**: it injects settings via `committedRefs()` and uses `refs.PrimaryAsRead()` at `attach.go:366,466` — Phase 0 must preserve that exact topology through `OpenOptions.Settings`/`Re\n[assistant] Now the migration. Let me read the construction sites in batches, starting with `resume.go`, `attach.go`, and `explain.go`.\n[assistant] attach.go done. Now `explain.go` — sites 641, 681, 687, 860, 2013, plus `store.Repository()` at 936. Let me read those regions.\n[assistant] explain.go is the most involved (temporary + committed + `Repository()`). Let me read the other regions before editing.\n[assistant] Let me read explain.go's remaining site (2013), the `explainCheckpointLookup` struct, and the `explainTemporaryCheckpoint` signature to handle the temporary path correctly.\n[assistant] `lookup.store` is committed-only (`*GitStore`), so `lookup.store = stores.Primary` is correct. `generateCheckpointSummary` uses both committed-write and `Repository()`, so I'll change it to take the facade (clean migrate-once). Applying explain.go edits, using distinct error-var names inside blocks that later reuse the outer `err` to avoid shadowing:\n[assistant] explain.go done. Now the remaining CLI sites: `review_context.go`, `head_checkpoint_flags.go`, `attribution.go`, `rewind.go`, and `dispatch/mode_local.go`. Reading them:\n[assistant] Now update `generateCheckpointSummary`'s param type in explain.go (the only other use of the type name):"
+  },
+  {
+   "source": "prompt",
+   "commit": "0747ca9b96",
+   "checkpoint": "c11527631d6b",
+   "text": "can you help me trace the issue here: ❯ entire repo mirror create github.com/entirehq/entire.io aws-eu-central-1.entire.io\n(re)link your GitHub account to continue"
+  },
+  {
+   "source": "commit_message",
+   "commit": "5c6d612cc0",
+   "checkpoint": "696096934b50",
+   "text": "Fetch missing git-refs checkpoints on demand for reads\n\nA git-refs primary previously read only checkpoint refs already present locally,\nso checkpoints written on another machine (or not yet fetched after clone) read\nas not-found. FetchCheckpointRef fetches one ref via the checkpoint remote into\nthe local ref of the same name; it's wired into the read commands that already\ninject FetchBlobsByHash (resume, explain, attribution, tokens profile) via the\nnew OpenOptions.RefFetcher. gitRefsStore.resolveRefMaybeFetch invokes it once on\na local miss and retries; a failed fetch resolves to ErrCheckpointNotFound. The\ngit-branch backend ignores it; strategy-side Opens (condensation/rewind) read\njust-written local refs and pass no fetcher."
+  },
+  {
+   "source": "transcript",
+   "commit": "5c6d612cc0",
+   "checkpoint": "696096934b50",
+   "text": "[assistant] Bug 1's fix cleared **8 of 9**. Now: git-refs vogon **57/59** (1 fail, 1 intentional skip), roger-roger **4/4**. The lone failure is `TestExplainCheckpointFromClonedRepo` — the on-demand-fetch case. Earlier I saw two `explain.go` Opens at 642/686 using bare `OpenOptions{}` (no `RefFetcher`). Let me check.\n[assistant] t read by ID** (resume/attribution/tokens, and explain once the ID is known): the store's `resolveRefMaybeFetch` above.\n- **Explain prefix→ID on a clone:** `matchCheckpointPrefixWithRemoteFallback` (`explain_export.go`) — when local matching finds nothing and the primary is git-refs, if the prefix is a *full* checkpoint ID it calls `FetchCheckpointRef` then re-lists. (This is the fix from the last commit.)\n\n## The honest limitation\n\nThere's **no remote enumeration**. `List()` reads *local* refs only. So:\n- Direct read by a known full ID → fetched on demand ✅ (and the `Entire-Checkpoint:` commi\n[user] itself — kept 12-hex by design; it's reused for *run IDs*.\n  - `investigate/state.go` + `provenance/env.go` `runIDPattern` — **run IDs**.\n  - `trail/trail.go` `idRegex` — the **trail** feature's own 12-hex `ID` type (separate concept).\n  - `explain.go` `abbreviateCommitHash` — **commit SHA** abbreviation.\n\nNothing required ULID *generation* to test, and no ambiguity beyond the classifications above. Two commits on the branch; not pushed, no PR opened.</result>\n<usage><subagent_tokens>546548</subagent_tokens><tool_uses>32</tool_uses><duration_ms>461305</duration_ms></usage>\n</task-notification>"
+  },
+  {
+   "source": "prompt",
+   "commit": "5c6d612cc0",
+   "checkpoint": "696096934b50",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7b1005d319",
+   "checkpoint": "67c4161a54a9",
+   "text": "checkpoint: reshape facade to Stores.Persistent / Stores.Ephemeral()\n\nThe Open facade now exposes the two stores under lifecycle-named accessors:\n  Stores.Primary      -> Stores.Persistent  (field)\n  Stores.Temporary()  -> Stores.Ephemeral() (method)\nand the strategy helpers follow:\n  getCheckpointStore  -> getPersistentStore\n  getTemporaryStore   -> getEphemeralStore\n\nCallers read sto.Persistent.Read(...) / sto.Ephemeral().Write(...), the\nsymmetric surface from the review feedback. No behavior change."
+  },
+  {
+   "source": "commit_message",
+   "commit": "698e4774cc",
+   "checkpoint": "88d8a34b0471",
+   "text": "checkpoint: collapse persistent reads to generic Read/List\n\nRename the committed read methods to the generic surface differentiated by\nreturn type:\n  (PersistentStore).ReadCommitted -> Read   (returns *CheckpointSummary)\n  (PersistentStore).ListCommitted -> List\n  ReadCommittedCheckpoint (helper) -> ReadCheckpoint\n\nSets up sto.Persistent.Read(...) once the facade is reshaped. No behavior change."
+  }
+ ],
+ "cost": {
+  "usd": 0.041109,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 141,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 9907
+ },
+ "trace_id": "4b0341e3b7d0fafbf959152db0c5b5dc",
+ "error": null,
+ "trace_spans": 6
+}

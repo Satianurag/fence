@@ -1,0 +1,62 @@
+{
+ "issue": 1852,
+ "title": "Worktree commits get no Entire-Checkpoint trailer when the session started in another worktree of the same repo (findSessionsForWorktree exact-path match)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.85,
+  "rationale": "The evidence is about a context-plumbing refactor that replaced context.Background() with a propagated ctx. It never mentions how sessions are matched to worktrees, so the exact-path match in findSessionsForWorktree was not chosen as a deliberate design in this evidence.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "a8884ef114",
+  "files_named": 1,
+  "symbols_named": 2,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_session.go",
+    152,
+    165,
+    "func:findSessionsForWorktree"
+   ]
+  ],
+  "lines": 14,
+  "lines_linked": 2,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Add consistent context plumbing everywhere"
+  },
+  {
+   "source": "transcript",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "[user] ID`\n- `strategy/manual_commit_rewind.go` — `Rewind`, `GetRewindPoints`, rewind helpers\n- `strategy/manual_commit_logs.go` — `GetSessionInfo`, `GetSessionContext`, `GetCheckpointLog`, etc.\n- `strategy/manual_commit_session.go` — `loadSessionState`, `saveSessionState`, `clearSessionState`, `listAllSessionStates`\n- `strategy/manual_commit_push.go` — `PrePush`\n- `strategy/auto_commit.go` — all Strategy method implementations\n- `strategy/common.go` — shared helpers (`ListCheckpoints`, `getUntrackedFiles`, etc.)\n- `strategy/content_overlap.go` — content overlap detection functions\n- `strategy/cleanu\n[assistant] t didn't replace internal context.Background() with ctx)\n- `manual_commit_hooks.go` - still has context.Background() in helpers\n- `manual_commit_condensation.go` - still has context.Background()\n\n\n- `manual_commit_session.go` - still has context.Background() in some places\n- `common.go` - still has context.Background()\n- `content_overlap.go` - still has context.Background()\n- `cleanup.go` - still has context.Background()\n- `hooks.go` - still has context.Background()\n- `push_common.go` - still has context.Background()\n- `session_state.go` - still has context.Background()\n- `session.go` - still "
+  },
+  {
+   "source": "prompt",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Implement the following plan:\n\n# Plan: Add Context Plumbing Throughout the CLI\n\n## Context\n\n`main.go` creates a cancellable context (`context.WithCancel`) and passes it to Cobra via `rootCmd.ExecuteContext(ctx)`. However, no command retrieves it via `cmd.Context()`. Instead, ~120+ production code locations create `context.Background()`, losing cancellation support from SIGINT/SIGTERM and any parent context values.\n\n## Goal\n\nThread the root context from `main.go` through the entire call chain, replacing `context.Background()` with the properly propagated context. This enables signal-based cancellation to propagate to git operations, checkpoint writes, and other long-running work.\n\n## Exceptions (keep `context.Background()`)\n\n- `main.go:18` — this IS the root context\n- `telemetry/detached_un"
+  }
+ ],
+ "cost": {
+  "usd": 0.014509,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 125,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 3297
+ },
+ "trace_id": "da6c3d1e3769a719d9c8ac996cf682ed",
+ "error": null,
+ "trace_spans": 6
+}

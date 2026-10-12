@@ -1,0 +1,188 @@
+{
+ "issue": 2196,
+ "title": "MigrateBranchToRefs re-runs take a flock and a git subprocess per already-imported checkpoint",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence shows idempotency was chosen via first-parent history walking, and re-enqueue on skip was deliberate. Nothing shows anyone decided that already-imported checkpoints should take a flock and `git update-ref` per checkpoint; that cost came from routing through `updatePersistentRef` (#1926) without an outer fast path. The reported behaviour is an unconsidered side effect, not a recorded choice.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "b56f435e1f",
+  "files_named": 1,
+  "symbols_named": 6,
+  "spans": 4,
+  "span_list": [
+   [
+    "cmd/entire/cli/checkpoint/migrate.go",
+    108,
+    108,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/persistent_ref_update.go",
+    87,
+    123,
+    "func:updatePersistentRef"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/migrate.go",
+    167,
+    182,
+    "func:treeInRefHistory"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/migrate.go",
+    48,
+    163,
+    "func:MigrateBranchToRefs"
+   ]
+  ],
+  "lines": 170,
+  "lines_linked": 78,
+  "checkpoints": 8
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "5ded4dbdfd",
+   "checkpoint": "ceed5d17e529",
+   "text": "Add `entire doctor migrate-checkpoints` (git-branch → git-refs)\n\nConvert checkpoints on the entire/checkpoints/v1 branch into per-checkpoint refs\n(refs/entire/checkpoints/<shard>/<id>), the git-refs store's layout.\n\ncheckpoint.MigrateBranchToRefs walks the v1 branch tip and, for each checkpoint,\nwraps its CURRENT subtree object in a fresh commit and points the ref at it —\nexisting branch commits are not remapped. Since the git-refs ref tree is the\nbranch's <shard>/<id> subtree byte-for-byte, a migrated checkpoint reads\nidentically under either backend. It is idempotent: a checkpoint whose ref\nalready carries the same tree is skipped, and a changed checkpoint re-migrates by\nfast-forward (new commit parents on the existing ref, so no history is lost).\nNew/advanced refs are enqueued for push; the function itself never pushes.\n\nThe `doctor migrate-checkpoints` command reports migrated/skipped/total and, per\nthe requested policy, only pushes when it can prompt: interactively it asks\nwhether to push now; non-interactively it never pushes (refs stay queued and\nflush on the next push once git-refs is primary). `--dry-run` reports what would\nchange without writing refs.\n\nPush reuse: the git-refs pre-push queue-flush is extracted into\nstrategy.flushCheckpointRefsQueue (shared by the fail-soft pre-push path and the\nnew error-surfacing strategy.PushMigratedCheckpointRefs), so the \"push now\"\noption goes through the exact same fast-forward + fetch/replay logic."
+  },
+  {
+   "source": "transcript",
+   "commit": "5ded4dbdfd",
+   "checkpoint": "ceed5d17e529",
+   "text": "[assistant]  primitives exist on main — this is genuinely small because the v1 `<shard>/<id>` subtree **is** the git-refs ref tree (byte-identical), so I don't rebuild anything:\n\n**Plan (matches your spec):** a `MigrateBranchToRefs(ctx, repo)` in the `checkpoint` package that:\n1. Resolves the v1 branch tip tree, `WalkCheckpointShards` → `(checkpointID, subtreeHash)` for every checkpoint.\n2. For each: `RefName(id)` → if the ref already points at a commit whose **tree == that subtreeHash**, skip (idempotent). Otherwise `CreateCommit(subtreeHash, parent, \"Import checkpoint <id>\", author)` — a fresh commit wr\n[assistant] #1611](https://github.com/entireio/cli/pull/1611)** off latest main. (That last notification was just the leftover `sleep` wrapper finishing.)\n\n## What it does — matches your spec exactly\n`checkpoint.MigrateBranchToRefs` walks the v1 branch tip and, per checkpoint, **wraps its current subtree object in a fresh commit** (does *not* remap the branch's own commits) and points `refs/entire/checkpoints/<shard>/<id>` at it. Since the ref tree is the branch's `<shard>/<id>` subtree byte-for-byte, it reads identically under either backend.\n\n- **Idempotent**: a checkpoint whose ref already carries that"
+  },
+  {
+   "source": "prompt",
+   "commit": "5ded4dbdfd",
+   "checkpoint": "ceed5d17e529",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "5edbdf0733",
+   "checkpoint": "01KWX0X0VSAQD8ZCC4Q8QRDAP6",
+   "text": "Guard checkpoint migration re-runs against ref regression\n\nA re-run compared only the ref tip tree, so a ref that advanced past\nthe migration snapshot through refs-store writes (summary/transcript\nbackfills) would be \"re-migrated\": a new commit wrapping the stale\nbranch tree, fast-forwarding the tip backwards content-wise and\npropagating on the next push.\n\nIdempotency now walks the ref's first-parent chain — a snapshot found\nanywhere in history is skipped. The doctor command additionally\nrefuses to run when git-refs is already the primary store, where the\nv1 branch may lag the refs and re-importing could only regress them."
+  },
+  {
+   "source": "transcript",
+   "commit": "5edbdf0733",
+   "checkpoint": "01KWX0X0VSAQD8ZCC4Q8QRDAP6",
+   "text": "[user] , and verified each candidate against the surrounding source (`refs_store.go`, `checkpoint_remote.go`, `doctor.go`, callers of the new exports).\n\n## Findings\n\n**1. Medium — `cmd/entire/cli/checkpoint/migrate.go:78-84` — hand-rolls the existing `gitRefsStore.refBase` and, unlike it, silently swallows real ref-lookup failures.**\n\nThe block\n\n```go\nparent := plumbing.ZeroHash\nif existing, err := repo.Reference(refName, true); err == nil {\n    parent = existing.Hash()\n    if commit, cerr := repo.CommitObject(parent); cerr == nil &amp;&amp; commit.TreeHash == cpTreeHash {\n```\n\nreimplements `refBase`\n[user] k-id may notify more than once.</note>\n<result># Clean Go Review — `feat/checkpoint-migrate` vs `origin/main`\n\nTarget Go version: **1.26.4** (from `go.mod`). Diff reviewed: `cmd/entire/cli/checkpoint/migrate.go` + test (new), `cmd/entire/cli/doctor_migrate.go` (new), `cmd/entire/cli/doctor.go` (1-line wiring), `cmd/entire/cli/strategy/manual_commit_push.go` (extraction of `flushCheckpointRefsQueue` / `PushMigratedCheckpointRefs`).\n\nVerified against source: `setRef` is an unconditional `Storer.SetReference` (force move) that enqueues for push (`refs_store.go:104-114`); `WalkCheckpointShards` on\n[assistant] rification\n\n| Command | Exit | Relevant output | Full log |\n|---------|------|-----------------|----------|\n| `go build ./cmd/...` | 0 | clean | n/a |\n| `go test ./cmd/entire/cli/checkpoint/ -run TestMigrateBranchToRefs -count=1` | 0 | `ok 0.560s` (incl. new regression test, confirmed red before the fix) | n/a |\n| `go test ./cmd/entire/cli/ -run TestDoctorMigrateCheckpoints -count=1` | 0 | `ok 0.522s` (new guard test, confirmed red before the fix) | n/a |\n| `mise run fmt` + `mise run lint` | 0 | `0 issues` | n/a |\n\n## Decisions applied\n\n| # | Finding | File | Status | What changed | Why |\n|---"
+  },
+  {
+   "source": "prompt",
+   "commit": "5edbdf0733",
+   "checkpoint": "01KWX0X0VSAQD8ZCC4Q8QRDAP6",
+   "text": "/pfleidi:review\n\n---\n\n<task-notification>\n<task-id>a438450ee7ef31ccd</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-pfleidi-entire-cli--worktrees-feat-checkpoint-migrate/7f6ea714-015a-41c9-a46a-6881e7f2f0f1/tasks/a438450ee7ef31ccd.output</output-file>\n<status>completed</status>\n<summary>Agent \"De-slop review of diff\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>Review complete. I read the de-slop taxonomy, the full branch diff (`git diff origin/main`, 6 files), and verified against surrounding source: `WalkCheckpointShards` (parse_tree.go:353), `refBase`/`set"
+  },
+  {
+   "source": "commit_message",
+   "commit": "605050d0ef",
+   "checkpoint": "01KWY6VAT1V2Z6NHCKZ3BNNJY2",
+   "text": "migrate: re-enqueue already-imported refs so a lost enqueue still pushes\n\nThe idempotency skip keyed only on \"snapshot already on the ref,\" so a\nref written by a prior run that then failed to enqueue it — an Enqueue\nerror, or a crash between setRef and Enqueue — was skipped on every\nlater run and never queued for push. The migrated ref then existed\nlocally but its checkpoint data never reached the remote, silently\ndefeating the guaranteed-enqueue contract on exactly the retry it was\nmeant to enable.\n\nCompute the ref name up front and enqueue on the skip path too (never in\ndry-run). Enqueue is idempotent — duplicates collapse on Drain and an\nalready-pushed ref is a no-op on the next push — so re-enqueuing a\nskipped checkpoint is safe and closes the gap. Dry-run now accounts an\nalready-imported checkpoint as a skip rather than reaching the old\nwould-migrate branch, and writes/enqueues nothing."
+  },
+  {
+   "source": "transcript",
+   "commit": "605050d0ef",
+   "checkpoint": "01KWY6VAT1V2Z6NHCKZ3BNNJY2",
+   "text": "[user]  and subtest should call `t.Parallel()` unless it modifies process-global state (e.g., `os.Chdir()`)\")**\n- `migrate_test.go`: all 7 test funcs call `t.Parallel()`; none use `t.Chdir`/`t.Setenv`. `TestMigrateBranchToRefs_EnqueueFailureIsError` only does `os.MkdirAll(queue.queuePath(), ...)` inside the isolated temp repo — not process-global — so `t.Parallel()` is correct.\n- `refs_push_test.go`: consistent. The `t.Chdir` tests correctly OMIT `t.Parallel()` (`TestBatchPushRefs`, `TestBatchPushRefs_AllowsFastForward`, `TestBatchPushRefs_RejectsNonFastForward`, `TestPushCheckpointRefWithRecovery_Me\n[user] ath construction in `persistent.go`). Findings below, strongest first.\n\n---\n\n**Finding 1 — transient `refBase` IO error clobbers a valid ref with an orphan commit**\n- file: `cmd/entire/cli/checkpoint/migrate.go`\n- line: 83-85 (`parent, _, err := refsStore.refBase(cid); if err != nil { parent = plumbing.ZeroHash }`)\n- summary: Any `refBase` error (not just corruption) is collapsed to \"no parent,\" discarding the existing ref history and re-parenting on ZeroHash.\n- failure_scenario: `refBase` returns an error not only for a bogus/corrupt commit but also for transient IO — e.g. a concurrent `git g\n[assistant] All four angles are in and I've verified the survivors against the actual PR code (`refBase` source, the final `migrate.go`/`doctor_migrate.go`/push file, and the package import direction). Here's the review.\n\n---\n\n## `entire doctor migrate-checkpoints` (git-branch → git-refs) — review\n\n**What it does:** Adds a `doctor migrate-checkpoints` command that walks each checkpoint on the `entire/checkpoints/v1` branch, normalizes its root `metadata.json` for the refs layout, wraps the subtree in a fresh commit, and points a per-checkpoint ref (`refs/entire/checkpoints/<shard>/<id>`) at it — idempoten"
+  },
+  {
+   "source": "commit_message",
+   "commit": "4501fc9b9e",
+   "checkpoint": "01KWX19DEHT2AEBYYGZQY33HV7",
+   "text": "Address PR feedback: guaranteed enqueue, cleanup parity\n\nMigrateBranchToRefs promised refs are queued for push, but setRef's\nenqueue is best-effort — a failed enqueue left migrated refs written\nlocally and silently never pushed. The migration now enqueues\nexplicitly and fails on error; duplicates collapse on Drain.\n\nPushQueuedCheckpointRefs now runs post-push shadow-branch cleanup\nafter a successful flush, matching the pre-push paths."
+  },
+  {
+   "source": "transcript",
+   "commit": "4501fc9b9e",
+   "checkpoint": "01KWX19DEHT2AEBYYGZQY33HV7",
+   "text": "[user] , and verified each candidate against the surrounding source (`refs_store.go`, `checkpoint_remote.go`, `doctor.go`, callers of the new exports).\n\n## Findings\n\n**1. Medium — `cmd/entire/cli/checkpoint/migrate.go:78-84` — hand-rolls the existing `gitRefsStore.refBase` and, unlike it, silently swallows real ref-lookup failures.**\n\nThe block\n\n```go\nparent := plumbing.ZeroHash\nif existing, err := repo.Reference(refName, true); err == nil {\n    parent = existing.Hash()\n    if commit, cerr := repo.CommitObject(parent); cerr == nil &amp;&amp; commit.TreeHash == cpTreeHash {\n```\n\nreimplements `refBase`\n[user] k-id may notify more than once.</note>\n<result># Clean Go Review — `feat/checkpoint-migrate` vs `origin/main`\n\nTarget Go version: **1.26.4** (from `go.mod`). Diff reviewed: `cmd/entire/cli/checkpoint/migrate.go` + test (new), `cmd/entire/cli/doctor_migrate.go` (new), `cmd/entire/cli/doctor.go` (1-line wiring), `cmd/entire/cli/strategy/manual_commit_push.go` (extraction of `flushCheckpointRefsQueue` / `PushMigratedCheckpointRefs`).\n\nVerified against source: `setRef` is an unconditional `Storer.SetReference` (force move) that enqueues for push (`refs_store.go:104-114`); `WalkCheckpointShards` on\n[assistant] rification\n\n| Command | Exit | Relevant output | Full log |\n|---------|------|-----------------|----------|\n| `go build ./cmd/...` | 0 | clean | n/a |\n| `go test ./cmd/entire/cli/checkpoint/ -run TestMigrateBranchToRefs -count=1` | 0 | `ok 0.560s` (incl. new regression test, confirmed red before the fix) | n/a |\n| `go test ./cmd/entire/cli/ -run TestDoctorMigrateCheckpoints -count=1` | 0 | `ok 0.522s` (new guard test, confirmed red before the fix) | n/a |\n| `mise run fmt` + `mise run lint` | 0 | `0 issues` | n/a |\n\n## Decisions applied\n\n| # | Finding | File | Status | What changed | Why |\n|---"
+  },
+  {
+   "source": "prompt",
+   "commit": "4501fc9b9e",
+   "checkpoint": "01KWX19DEHT2AEBYYGZQY33HV7",
+   "text": "/pfleidi:review\n\n---\n\n<task-notification>\n<task-id>a438450ee7ef31ccd</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-pfleidi-entire-cli--worktrees-feat-checkpoint-migrate/7f6ea714-015a-41c9-a46a-6881e7f2f0f1/tasks/a438450ee7ef31ccd.output</output-file>\n<status>completed</status>\n<summary>Agent \"De-slop review of diff\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>Review complete. I read the de-slop taxonomy, the full branch diff (`git diff origin/main`, 6 files), and verified against surrounding source: `WalkCheckpointShards` (parse_tree.go:353), `refBase`/`set"
+  },
+  {
+   "source": "commit_message",
+   "commit": "befdcf4fbb",
+   "checkpoint": "4e6e24afb3e3",
+   "text": "Normalize checkpoint metadata during branch-to-refs migration\n\nMigrated checkpoints carried their v1-branch metadata verbatim: the\nlegacy checkpoint_version stamp (\"branch-v1\") and sessions[] file\npaths relative to the sharded branch root, both wrong for a\nper-checkpoint ref whose tree root is the checkpoint itself.\n\nThe migration now rewrites the root metadata.json per checkpoint:\ncheckpoint_version is dropped and any session string value under the\nbranch prefix is rebased to the ref's tree root, matching native\ngit-refs writes without hardcoding the SessionFilePaths field names.\nThe JSON object is edited in place so fields this CLI doesn't model\nsurvive. Session subtrees carry over byte-identical (the metadata.json\nswap goes through ApplyTreeChanges, so sibling subtree hashes are\nuntouched structurally), and idempotency compares against the\nnormalized tree.\n\nSee https://github.com/entireio/cli/pull/1611#discussion_r3515937518"
+  },
+  {
+   "source": "transcript",
+   "commit": "befdcf4fbb",
+   "checkpoint": "4e6e24afb3e3",
+   "text": "[user] , and verified each candidate against the surrounding source (`refs_store.go`, `checkpoint_remote.go`, `doctor.go`, callers of the new exports).\n\n## Findings\n\n**1. Medium — `cmd/entire/cli/checkpoint/migrate.go:78-84` — hand-rolls the existing `gitRefsStore.refBase` and, unlike it, silently swallows real ref-lookup failures.**\n\nThe block\n\n```go\nparent := plumbing.ZeroHash\nif existing, err := repo.Reference(refName, true); err == nil {\n    parent = existing.Hash()\n    if commit, cerr := repo.CommitObject(parent); cerr == nil &amp;&amp; commit.TreeHash == cpTreeHash {\n```\n\nreimplements `refBase`\n[user] k-id may notify more than once.</note>\n<result># Clean Go Review — `feat/checkpoint-migrate` vs `origin/main`\n\nTarget Go version: **1.26.4** (from `go.mod`). Diff reviewed: `cmd/entire/cli/checkpoint/migrate.go` + test (new), `cmd/entire/cli/doctor_migrate.go` (new), `cmd/entire/cli/doctor.go` (1-line wiring), `cmd/entire/cli/strategy/manual_commit_push.go` (extraction of `flushCheckpointRefsQueue` / `PushMigratedCheckpointRefs`).\n\nVerified against source: `setRef` is an unconditional `Storer.SetReference` (force move) that enqueues for push (`refs_store.go:104-114`); `WalkCheckpointShards` on\n[user] hedShadowBranches`, `WalkCheckpointShards`, `CreateCommit`, `getSessionsBranchTree`). Build passes (`go build ./cmd/entire/...`) and the new tests pass (`go test ./cmd/entire/cli/checkpoint/ -run TestMigrateBranchToRefs -count=1` → ok).\n\n**Merge-resolution check (requested scrutiny):** the hand-merged `flushCheckpointRefsQueue` faithfully preserves origin/main's `prePushCheckpointRefs` body — progress-dot `stop()` is called on every path (fast-path success, batch failure, per-ref loop end), so no goroutine leak; fail-soft is preserved in `prePushCheckpointRefs` (errors logged, `nil` returned)."
+  },
+  {
+   "source": "prompt",
+   "commit": "befdcf4fbb",
+   "checkpoint": "4e6e24afb3e3",
+   "text": "push the changes\n\n---\n\nAlso: I just checked the commit history Stefan hasn't pushed to this branch in 3 days. Where did the additional changes come from?\n\n---\n\nI have just restored the state on the remote branch. Can you go through all of the changes that we talked about and need to be made, re-apply them, and commit them one by one while taking into consideration the decision to prefer Stefan's decisions on how to address PR feedback?"
+  },
+  {
+   "source": "commit_message",
+   "commit": "06cf994331",
+   "checkpoint": "01KZZZXC2EKN0X83AKH3D2W81Q",
+   "text": "fix(explain): recover the v1 metadata branch from the checkpoint remote\n\nA fresh clone of a repo whose checkpoints live on a dedicated\ncheckpoint_remote could not read any legacy hex-ID checkpoint. The\ngit-branch store resolved reads from the local v1 ref, then from origin's\nremote-tracking ref, then gave up — and a checkpoint_remote setup has\nneither, because the branch was never pushed to origin. `entire explain\n<hex-id>` reported the checkpoint as unreadable with no way to recover.\n\nAdd a third tier: MetadataBranchFetchFunc, the git-branch counterpart to\nthe git-refs store's RefFetchFunc. Where that store resolves one missing\nper-checkpoint ref, this one resolves the single branch the whole record\nlives on. It is injected from the CLI layer like the other fetchers, so\nthe checkpoint package still resolves no remotes itself.\n\nThe tier is recovery, not refresh: it fires only when the branch resolves\nneither locally nor from origin, so a normal read stays local and the hot\npaths — which do not wire a fetcher at all — stay network-free. A failed\nfetch leaves the original not-found error intact, keeping List's\noffline-reads-as-empty behavior.\n\nWired into explain's read paths only. resume already self-heals through\nits own fetch ladder; the remaining callers are hooks and background\npaths where a network call on read would be wrong."
+  },
+  {
+   "source": "transcript",
+   "commit": "06cf994331",
+   "checkpoint": "01KZZZXC2EKN0X83AKH3D2W81Q",
+   "text": "[user] I am seeing some weird behavior with entire enable on the cli repo:\n\nFresh clone of git@github.com:entireio/cli.git\nRun entire enable (with version 0.10.0)\nnothing happens for 30s, CLI starts downloading 2 GB and times out\nRunning entire enable again, same result\n\n\nIt looks like we are trying to clone entireio/cli-checkpoints.git and give up if that does not succeed in those 30 seconds. That failure gets swallowed.\n\nNone of this would be expected for me as a dumb user :slightly_smiling_face:\n[assistant] Done — four commits on `soph/investigate-enable-timeout`.\n\n## End-to-end result\n\nSame repo (committed settings pointing at `entireio/cli-checkpoints`, git-refs primary), same command:\n\n| | `entire enable` |\n|---|---|\n| pre-fix (`ec5593200`) | **31.0s**, then again **30.2s** on the second run |\n| post-fix | **0.9s** |\n\nThe pre-fix run prints the same cheerful `Ready.` both times, with nothing to indicate a 1.53 GiB fetch was attempted and killed. That's the reported bug, reproduced and fixed.\n\n## The commits\n\n**`ae4db842e` — stop eagerly cloning v1 under the git-refs backend.** The core fix. Bo"
+  },
+  {
+   "source": "commit_message",
+   "commit": "80f680618c",
+   "checkpoint": "01KWY7CS85ZMCCM8RQEGKHPQAF",
+   "text": "migrate: --dry-run no longer writes loose git objects\n\nmigratedCheckpointTree ran before the dry-run guard and, for any\ncheckpoint whose metadata needs normalizing, called CreateBlobFromContent\n+ ApplyTreeChanges — both persist via SetEncodedObject. So a \"preview\"\nthat promises to report \"without writing\" left a dangling blob + tree per\ncheckpoint in the object store (thousands on a large v1 branch, until a\nfuture git gc).\n\nThread the dry-run flag into migratedCheckpointTree: when not persisting,\ncompute the normalized blob and tree hashes in memory (git hashes are\ncontent-addressed, so an object encoded but not stored hashes identically\nto a persisted one) and return without touching the object store. The\npersisting path is unchanged. A new test asserts the object count is\nunchanged across a dry-run, and another migrates for real then dry-runs\nagain and asserts the checkpoint is recognized as already-migrated —\npinning the in-memory hash to the persisted tree hash."
+  },
+  {
+   "source": "transcript",
+   "commit": "80f680618c",
+   "checkpoint": "01KWY7CS85ZMCCM8RQEGKHPQAF",
+   "text": "[user]  and subtest should call `t.Parallel()` unless it modifies process-global state (e.g., `os.Chdir()`)\")**\n- `migrate_test.go`: all 7 test funcs call `t.Parallel()`; none use `t.Chdir`/`t.Setenv`. `TestMigrateBranchToRefs_EnqueueFailureIsError` only does `os.MkdirAll(queue.queuePath(), ...)` inside the isolated temp repo — not process-global — so `t.Parallel()` is correct.\n- `refs_push_test.go`: consistent. The `t.Chdir` tests correctly OMIT `t.Parallel()` (`TestBatchPushRefs`, `TestBatchPushRefs_AllowsFastForward`, `TestBatchPushRefs_RejectsNonFastForward`, `TestPushCheckpointRefWithRecovery_Me\n[user] ath construction in `persistent.go`). Findings below, strongest first.\n\n---\n\n**Finding 1 — transient `refBase` IO error clobbers a valid ref with an orphan commit**\n- file: `cmd/entire/cli/checkpoint/migrate.go`\n- line: 83-85 (`parent, _, err := refsStore.refBase(cid); if err != nil { parent = plumbing.ZeroHash }`)\n- summary: Any `refBase` error (not just corruption) is collapsed to \"no parent,\" discarding the existing ref history and re-parenting on ZeroHash.\n- failure_scenario: `refBase` returns an error not only for a bogus/corrupt commit but also for transient IO — e.g. a concurrent `git g\n[assistant] All four angles are in and I've verified the survivors against the actual PR code (`refBase` source, the final `migrate.go`/`doctor_migrate.go`/push file, and the package import direction). Here's the review.\n\n---\n\n## `entire doctor migrate-checkpoints` (git-branch → git-refs) — review\n\n**What it does:** Adds a `doctor migrate-checkpoints` command that walks each checkpoint on the `entire/checkpoints/v1` branch, normalizes its root `metadata.json` for the refs layout, wraps the subtree in a fresh commit, and points a per-checkpoint ref (`refs/entire/checkpoints/<shard>/<id>`) at it — idempoten"
+  },
+  {
+   "source": "prompt",
+   "commit": "80f680618c",
+   "checkpoint": "01KWY7CS85ZMCCM8RQEGKHPQAF",
+   "text": "<task-notification>\n<task-id>a5ac817684f80868e</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli/27223555-55fc-47d9-892f-dbb48c2ab21a/tasks/a5ac817684f80868e.output</output-file>\n<status>completed</status>\n<summary>Agent \"Reuse angle\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>Based on my investigation, here are the reuse findings for PR #1287, most severe first.\n\n```json\n[\n  {\n    \"file\": \"cmd/entire/cli/agent/antigravity/hooks.go\",\n    \"line\": 210,\n    \"summary\": \"New writeJSONMapFile helper uses os.WriteFile (non-atomic) to write"
+  },
+  {
+   "source": "commit_message",
+   "commit": "b9159edd1a",
+   "checkpoint": "57d756e084fd",
+   "text": "/simplify: reuse refBase, drop dead branch, rename push entry\n\nResolve the existing ref through the refs store's refBase instead of\nan inline Reference/CommitObject chain, keeping the same semantics: a\nref that doesn't resolve to a readable commit is treated as absent and\nthe checkpoint is re-migrated as an orphan (pinned by a new test).\n\nDrop the unreachable malformed-id skip — WalkCheckpointShards only\nyields validated IDs, and refBase would surface the error anyway.\n\nRename PushMigratedCheckpointRefs to PushQueuedCheckpointRefs: it\nflushes the whole queue, not just migrated refs."
+  },
+  {
+   "source": "transcript",
+   "commit": "b9159edd1a",
+   "checkpoint": "57d756e084fd",
+   "text": "[user] , and verified each candidate against the surrounding source (`refs_store.go`, `checkpoint_remote.go`, `doctor.go`, callers of the new exports).\n\n## Findings\n\n**1. Medium — `cmd/entire/cli/checkpoint/migrate.go:78-84` — hand-rolls the existing `gitRefsStore.refBase` and, unlike it, silently swallows real ref-lookup failures.**\n\nThe block\n\n```go\nparent := plumbing.ZeroHash\nif existing, err := repo.Reference(refName, true); err == nil {\n    parent = existing.Hash()\n    if commit, cerr := repo.CommitObject(parent); cerr == nil &amp;&amp; commit.TreeHash == cpTreeHash {\n```\n\nreimplements `refBase`\n[user] k-id may notify more than once.</note>\n<result># Clean Go Review — `feat/checkpoint-migrate` vs `origin/main`\n\nTarget Go version: **1.26.4** (from `go.mod`). Diff reviewed: `cmd/entire/cli/checkpoint/migrate.go` + test (new), `cmd/entire/cli/doctor_migrate.go` (new), `cmd/entire/cli/doctor.go` (1-line wiring), `cmd/entire/cli/strategy/manual_commit_push.go` (extraction of `flushCheckpointRefsQueue` / `PushMigratedCheckpointRefs`).\n\nVerified against source: `setRef` is an unconditional `Storer.SetReference` (force move) that enqueues for push (`refs_store.go:104-114`); `WalkCheckpointShards` on\n[user] hedShadowBranches`, `WalkCheckpointShards`, `CreateCommit`, `getSessionsBranchTree`). Build passes (`go build ./cmd/entire/...`) and the new tests pass (`go test ./cmd/entire/cli/checkpoint/ -run TestMigrateBranchToRefs -count=1` → ok).\n\n**Merge-resolution check (requested scrutiny):** the hand-merged `flushCheckpointRefsQueue` faithfully preserves origin/main's `prePushCheckpointRefs` body — progress-dot `stop()` is called on every path (fast-path success, batch failure, per-ref loop end), so no goroutine leak; fail-soft is preserved in `prePushCheckpointRefs` (errors logged, `nil` returned)."
+  }
+ ],
+ "cost": {
+  "usd": 0.053279,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 172,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 12872
+ },
+ "trace_id": "6818d7fb7b7505cf1842d15fc474797d",
+ "error": null,
+ "trace_spans": 6
+}

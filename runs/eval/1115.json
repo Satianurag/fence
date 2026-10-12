@@ -1,0 +1,134 @@
+{
+ "issue": 1115,
+ "title": "Bootstrap \"Initialize metadata branch\" commit is not signed, blocked by signed-commit rulesets",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers the signing work for checkpoint commits (SignCommitBestEffort, the opt-out setting, signer refactor), but none of it mentions the orphan bootstrap commit in common.go or says it should stay unsigned. The missing signing call looks like an omission, not a choice.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "ed9ff97b6c",
+  "files_named": 2,
+  "symbols_named": 6,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/metadata_reconcile.go",
+    596,
+    596,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/checkpoint/committed.go",
+    1873,
+    1908,
+    "func:SignCommitBestEffort"
+   ]
+  ],
+  "lines": 37,
+  "lines_linked": 16,
+  "checkpoints": 5
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "ae01a9c2b1",
+   "checkpoint": "855bb9174e57",
+   "text": "Make SignCommitBestEffort truly best-effort and add sign_checkpoint_commits setting\n\nSignCommitBestEffort now logs errors via the logging package instead of\nreturning them, so users with hardware security keys or other signers\nrequiring physical presence won't have checkpoint commits blocked.\n\nAdd sign_checkpoint_commits setting (default: true) to let users opt out\nof signing checkpoint commits entirely via .entire/settings.json.\n\nThread context.Context through CreateCommit, createCommit, updateRef,\ncreateMergeCommitCommon, createCherryPickCommit, and related helpers so\nthat signing warnings flow to .entire/logs/ like all other operational\nmessages.\n\nAssisted-by: Claude Opus 4.6 <noreply@anthropic.com>"
+  },
+  {
+   "source": "transcript",
+   "commit": "ae01a9c2b1",
+   "checkpoint": "855bb9174e57",
+   "text": "[user] Instead of erroring, calls to SignCommitBestEffort should just log the error can carry on with the commit. This means that users relying on signers that require physical presence won't block the commits from being generated.\n\nAs part of this change, let's add a new setting whereby users can opt-out signing checkpoint commits.\n[assistant] Now let me check the imports in `committed.go` for the logging package.\n[assistant] Now update `SignCommitBestEffort` to log errors instead of returning them, and check the setting.\n[assistant] Now add the settings import to committed.go.\n[assistant] `fmt` is still used extensively in committed.go. Let me also verify `slog` is still imported since `SignCommitBestEffort` now uses it directly.\n\nGood, `slog` was already imported at line 10. Now let me check if `logging` import is still needed (it was before, likely used elsewhere).\n\nLet me also check if there are any existing tests for `SignCommitBestEffort` I need to update.\n[assistant] The stash restored the original code in push_common.go, metadata_reconcile.go, and settings.go. It seems the stash pop failed. Let me restore my changes.\n[assistant] Here's a summary of the changes:\n\n**`SignCommitBestEffort` is now truly best-effort** — signing failures are logged via `slog.Warn` instead of returning errors. This means users with hardware security keys or other signers requiring physical presence won't have checkpoint commits blocked.\n\n**New `sign_checkpoint_commits` setting** — users can opt out of signing checkpoint commits entirely by adding to `.entire/settings.json`:\n```json\n{\n  \"sign_checkpoint_commits\": false\n}\n```\nDefaults to `true` (sign when a signer is available).\n\n### Files changed:\n\n1. **`cmd/entire/cli/checkpoint/committed.go\n[assistant] The logging package requires `context.Context`. `SignCommitBestEffort` doesn't have one, so I need to thread context through."
+  },
+  {
+   "source": "prompt",
+   "commit": "ae01a9c2b1",
+   "checkpoint": "855bb9174e57",
+   "text": "commit staged changes"
+  },
+  {
+   "source": "commit_message",
+   "commit": "ddfbec1d21",
+   "checkpoint": "937768a7a576",
+   "text": "Move checkpoint signer setup into CreateCommit"
+  },
+  {
+   "source": "prompt",
+   "commit": "ddfbec1d21",
+   "checkpoint": "937768a7a576",
+   "text": "commit"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d3b83523ca",
+   "checkpoint": "a70d97c363c8",
+   "text": "Refactor object signer registration"
+  },
+  {
+   "source": "transcript",
+   "commit": "d3b83523ca",
+   "checkpoint": "a70d97c363c8",
+   "text": "[assistant] All checkpoint tests pass. The failing test (`TestRunUninstall_Force_NothingInstalled`) is pre-existing and unrelated to these changes.\n\nHere's a summary of the changes:\n\n### Fix 1: Resource leak — `committed.go:1707`\nAdded `defer r.Close()` after the successful `encoded.Reader()` call to close the `io.ReadCloser` returned by `MemoryObject.Reader()`.\n\n### Fix 2: Avoid unnecessary disk I/O — `committed.go:1678-1685`\nReordered the guard clauses so `plugin.Has(plugin.ObjectSigner())` (in-memory check) runs **before** `settings.IsSignCheckpointCommitsEnabled(ctx)` (disk read). When no signer is re\n[assistant] `fmt` is still used extensively in committed.go. Let me also verify `slog` is still imported since `SignCommitBestEffort` now uses it directly.\n\nGood, `slog` was already imported at line 10. Now let me check if `logging` import is still needed (it was before, likely used elsewhere).\n\nLet me also check if there are any existing tests for `SignCommitBestEffort` I need to update.\n[assistant] Here's a summary of the changes:\n\n**`SignCommitBestEffort` is now truly best-effort** — signing failures are logged via `slog.Warn` instead of returning errors. This means users with hardware security keys or other signers requiring physical presence won't have checkpoint commits blocked.\n\n**New `sign_checkpoint_commits` setting** — users can opt out of signing checkpoint commits entirely by adding to `.entire/settings.json`:\n```json\n{\n  \"sign_checkpoint_commits\": false\n}\n```\nDefaults to `true` (sign when a signer is available).\n\n### Files changed:\n\n1. **`cmd/entire/cli/checkpoint/committed.go"
+  },
+  {
+   "source": "prompt",
+   "commit": "d3b83523ca",
+   "checkpoint": "a70d97c363c8",
+   "text": "encoded.Reader() returns a reader that should be closed, but it is never closed here. This can leak resources across repeated checkpoint commits. Close the reader after signer.Sign completes (typically with defer r.Close() after the successful Reader() call).\n\nSignCommitBestEffort calls settings.IsSignCheckpointCommitsEnabled(ctx), which reloads settings from disk each time a commit is created. Since checkpoint creation can be frequent, this adds avoidable overhead. Consider loading this setting once (per command/run/store) and passing the resolved boolean into signing, or caching the loaded settings.\n\nNew signing behavior is introduced here, but there are no tests verifying: (1) signatures are added when an ObjectSigner is registered and settings allow it, (2) signing is skipped when sign"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d3b83523ca",
+   "checkpoint": "983194b9963d",
+   "text": "Refactor object signer registration"
+  },
+  {
+   "source": "transcript",
+   "commit": "d3b83523ca",
+   "checkpoint": "983194b9963d",
+   "text": "[user] it is never closed here. This can leak resources across repeated checkpoint commits. Close the reader after signer.Sign completes (typically with defer r.Close() after the successful Reader() call).\n\nSignCommitBestEffort calls settings.IsSignCheckpointCommitsEnabled(ctx), which reloads settings from disk each time a commit is created. Since checkpoint creation can be frequent, this adds avoidable overhead. Consider loading this setting once (per command/run/store) and passing the resolved boolean into signing, or caching the loaded settings.\n\nNew signing behavior is introduced here, but there \n[assistant] All checkpoint tests pass. The failing test (`TestRunUninstall_Force_NothingInstalled`) is pre-existing and unrelated to these changes.\n\nHere's a summary of the changes:\n\n### Fix 1: Resource leak — `committed.go:1707`\nAdded `defer r.Close()` after the successful `encoded.Reader()` call to close the `io.ReadCloser` returned by `MemoryObject.Reader()`.\n\n### Fix 2: Avoid unnecessary disk I/O — `committed.go:1678-1685`\nReordered the guard clauses so `plugin.Has(plugin.ObjectSigner())` (in-memory check) runs **before** `settings.IsSignCheckpointCommitsEnabled(ctx)` (disk read). When no signer is re\n[user] Ignore the lint error below: [lint:go] cmd/entire/cli/checkpoint/committed.go:1617:21: SA1019: config.LoadConfig is deprecated: Use the ConfigLoader plugin instead. This will be removed in v7. (staticcheck)\n[lint:go]         globalCfg, err := config.LoadConfig(config.GlobalScope)"
+  },
+  {
+   "source": "prompt",
+   "commit": "d3b83523ca",
+   "checkpoint": "983194b9963d",
+   "text": "encoded.Reader() returns a reader that should be closed, but it is never closed here. This can leak resources across repeated checkpoint commits. Close the reader after signer.Sign completes (typically with defer r.Close() after the successful Reader() call).\n\nSignCommitBestEffort calls settings.IsSignCheckpointCommitsEnabled(ctx), which reloads settings from disk each time a commit is created. Since checkpoint creation can be frequent, this adds avoidable overhead. Consider loading this setting once (per command/run/store) and passing the resolved boolean into signing, or caching the loaded settings.\n\nNew signing behavior is introduced here, but there are no tests verifying: (1) signatures are added when an ObjectSigner is registered and settings allow it, (2) signing is skipped when sign"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d3b83523ca",
+   "checkpoint": "67d77758922a",
+   "text": "Refactor object signer registration"
+  },
+  {
+   "source": "transcript",
+   "commit": "d3b83523ca",
+   "checkpoint": "67d77758922a",
+   "text": "[user] Fix the build issues arisen from the rebasing\n[assistant] The `go mod tidy` promoted `golang.org/x/crypto` from indirect to direct — this is from the commit signing code. This is expected. The lint:gomod check just wants this committed. The fixes are:\n\n1. **`strategy/clean_test.go`**: Changed 3 calls from `createCommit(repo, ...)` to `checkpoint.CreateCommit(context.Background(), repo, ...)`\n2. **`cli/clean_test.go`**: Added missing `context.Background()` first argument to 3 calls to `checkpoint.CreateCommit`\n3. **`go.mod`**: `go mod tidy` promoted `golang.org/x/crypto` to direct dependency (used by commit signing code)"
+  },
+  {
+   "source": "prompt",
+   "commit": "d3b83523ca",
+   "checkpoint": "67d77758922a",
+   "text": "Fix the build issues arisen from the rebasing"
+  }
+ ],
+ "cost": {
+  "usd": 0.025511,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 132,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 6030
+ },
+ "trace_id": "dc33242d74303a9b093e9c75262d8a3b",
+ "error": null,
+ "trace_spans": 6
+}

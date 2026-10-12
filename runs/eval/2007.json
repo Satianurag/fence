@@ -1,0 +1,146 @@
+{
+ "issue": 2007,
+ "title": "Replace obsolete `entire configure --agent` guidance left by #1062",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.85,
+  "rationale": "The evidence covers em-dash removal in config UI text and the addition of the investigate command. Neither mentions choosing `entire configure --agent` as the remediation guidance. The command was later moved by #1062, leaving these messages stale, so nobody decided they should keep recommending it.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "c495c922fd",
+  "files_named": 12,
+  "symbols_named": 0,
+  "spans": 12,
+  "span_list": [
+   [
+    "cmd/entire/cli/review/profile.go",
+    356,
+    356,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/picker.go",
+    105,
+    105,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/picker.go",
+    762,
+    762,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/cmd.go",
+    549,
+    549,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/cmd.go",
+    563,
+    563,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/cmd.go",
+    604,
+    604,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/cmd.go",
+    607,
+    607,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/cmd.go",
+    935,
+    935,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/review/cmd.go",
+    1059,
+    1059,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/investigate/cmd.go",
+    843,
+    843,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/investigate/picker.go",
+    144,
+    144,
+    "file:line"
+   ],
+   [
+    "cmd/entire/cli/investigate/cmd_test.go",
+    414,
+    414,
+    "file:line"
+   ]
+  ],
+  "lines": 12,
+  "lines_linked": 7,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "2522f902d2",
+   "checkpoint": "c104c98fc155",
+   "text": "inspect: drop em dashes from config UI text\n\nReplace em dashes in the inspect configuration flow with plain ASCII\n(hyphens, colons, semicolons, or periods) across the focus/output/scope\npickers, slot + model labels, profile chooser, the --configure agent\ncatalog, the --set-output help line, and first-run messages. No\nbehavior change; run-time output (TUI/dump) and Go comments are left as\nis."
+  },
+  {
+   "source": "transcript",
+   "commit": "2522f902d2",
+   "checkpoint": "c104c98fc155",
+   "text": "[assistant] s.** What changed:\n- **Settings** (`settings.go`): replaced `Judges`/`Chair` + legacy `Master`/`MasterAgent`/`MasterModel` with one optional `Judge *ReviewConfig` (json `\"judge\"`).\n- **Resolution** (`profile.go`): `profileJudges`/`profileMasterIdentity` → `profileJudge`; `defaultReviewMaster` → `defaultJudge`; added `resolveJudge` (explicit judge, else auto-select a text-gen inspector preferring claude-code → codex → gemini).\n- **Deleted** `synthesis_panel.go` (`PanelSynthesisProvider` + `composeChairPrompt`); `runMultiAgentPath` always uses `AgentSynthesisProvider`.\n- **CLI** (`cmd.go`): `--s\n[assistant] ion** — `local` (default) or `trail` — selectable in config and the guided flow:\n\n- **Settings** (`settings.go`): new `ReviewProfileConfig.Output` (`\"output\"`, omitempty).\n- **Resolver/validation** (`profile.go`): `ReviewOutputLocal`/`ReviewOutputTrail` consts, `profileOutput()` (defaults local), `normalizeReviewOutput()`.\n- **Guided setup** (`picker.go`): a new \"Where should the verdict go?\" step (`promptForOutputMode`) after the judge pick — Local vs \"post to the trail (entire trail finding)\".\n- **Scripted** (`cmd.go`): `--set-output local|trail` (validated; invalid → error). Only the non-de\n[assistant] I need to add the `encoding/json` import to profile.go since it's not currently there. Then I'm designing a new persistence layer with a `reviewSettingsScope` type and raw read-modify-write helpers to refactor how `saveReviewProfile` handles settings files.\n\nDefining the scope type and helpers... Finishing the function to marshal the profiles and default name into JSON, then save everything to the file using the settings writer. I'm noticing that `SaveProjectRaw` has \"Project\" in the name but just writes to any given path, which is a bit semantically odd, though it works fine and uses the righ"
+  },
+  {
+   "source": "prompt",
+   "commit": "2522f902d2",
+   "checkpoint": "c104c98fc155",
+   "text": "I noticed that the defaults are creating huge slop documents.\n\n---\n\nThe outcome needs to be concise, simple and straight to the point, no overhead information no redundancy for the default templates.\n\n---\n\nWhere do the prompts live?\n\n---\n\nOk, I mean the literal prompt text.\n\n---\n\nIt's too hidden from users. How can we make this more accessible? What are your suggestions?\n\n---\n\nNah. I don't like it. You expose them for me in markdown files at root for now.\n\n---\n\nThis is getting too complex and complicated for my taste. I did dozens of test rounds on the same task and the whole char and judges improved anything. I want to take a step back to having just inspectors and one judge consolidating it in a final round.\n\n---\n\nUpdate the promtps accordingly (and the md files for me).\n\n---\n\nJust resol"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a5a6f5e250",
+   "checkpoint": "5d9432613a5d",
+   "text": "feat(investigate): add entire investigate command (labs)\n\nShips `entire investigate` as a hidden top-level command surfaced through\n`entire labs`. Runs a non-TUI marvin-style round-robin loop across\nlaunchable, hook-enabled agents (claude-code, codex, gemini-cli),\nbootstraps a findings doc + timeline, and tags each spawned session with\na new agent_investigate Kind so the next commit condenses the\ninvestigation onto entire/checkpoints/v1 alongside review runs.\n\nGitHub issue/PR URLs seed the loop through gh; a local manifest plus an\n`entire investigate fix` helper feeds accepted findings into a follow-up\ncoding session.\n\nInvestigate gets its own HasInvestigation umbrella flag and\nKind.IsInvestigate() predicate rather than reusing review's umbrella, so\nthe feature stays semantically distinct.\n\nIncludes a small spawner refactor: extract a shared Spawner interface\nunder cmd/entire/cli/agent/spawn/ so review and investigate share the\nper-agent argv builders. Review argv is byte-identical post-refactor."
+  },
+  {
+   "source": "transcript",
+   "commit": "a5a6f5e250",
+   "checkpoint": "5d9432613a5d",
+   "text": "[assistant] iewer_test.go` argv assertions kept alongside new `spawner_test.go` argv pins (functionally equivalent, defensible interpretation).\n\n### Code review: REQUEST_CHANGES\n\n**Critical (1):**\n- `investigate/cmd.go runContinue` drops `AlwaysPrompt` on resume — settings aren't reloaded and `RunState` doesn't persist it. Fix: load settings in `runContinue` and re-populate.\n\n**Important (4):**\n- `loop.go:309` per-turn log file uses `O_TRUNC` with no flock — concurrent `--continue` on same run-id silently races. Document or guard.\n- `loop.go ParseStanceFromTimeline` ignores `found` bool — agent that exits"
+  },
+  {
+   "source": "prompt",
+   "commit": "a5a6f5e250",
+   "checkpoint": "5d9432613a5d",
+   "text": "implement this on this branch /Users/alisha/.marvin/plans/entire-labs-investigate/prompt.md do not commit the claude.md file changes\n\n---\n\ncommit then verify to spec then do code review"
+  }
+ ],
+ "cost": {
+  "usd": 0.017877,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 127,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4134
+ },
+ "trace_id": "429ce8bd59076d2880c09b8663953a20",
+ "error": null,
+ "trace_spans": 6
+}

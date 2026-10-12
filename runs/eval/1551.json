@@ -1,0 +1,200 @@
+{
+ "issue": 1551,
+ "title": "`entire why` returns inconsistent checkpoint metadata across equivalent clones",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.6,
+  "rationale": "The evidence is about the right code, but nothing shows the swallowed fetch errors, the file-level path never enriching, or the fetchOnMiss=false first pass were chosen deliberately. The commits cover attach's fetch hints, authorship consistency, and session fallback surfacing, none of which address why's best-effort enrichment behaviour. Commit cf66e7aee1 does say that unreadable session metadata should set MetadataMissing so 'the why path retries via remote fetch', but that is about retrying, not about discarding errors.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "d3e42f0d1f",
+  "files_named": 4,
+  "symbols_named": 12,
+  "spans": 6,
+  "span_list": [
+   [
+    "cmd/entire/cli/attribution.go",
+    215,
+    266,
+    "func:runAttributionWhy"
+   ],
+   [
+    "cmd/entire/cli/attribution.go",
+    506,
+    533,
+    "func:enrichAttributionLineWithFetch"
+   ],
+   [
+    "cmd/entire/cli/attribution.go",
+    268,
+    312,
+    "func:resolveFileAttribution"
+   ],
+   [
+    "cmd/entire/cli/attach.go",
+    516,
+    524,
+    "func:suggestCheckpointFetchCommand"
+   ],
+   [
+    "cmd/entire/cli/attribution.go",
+    945,
+    1013,
+    "func:renderAttributionLineWhy"
+   ],
+   [
+    "cmd/entire/cli/explain_export.go",
+    196,
+    216,
+    "func:matchCheckpointPrefixWithRemoteFallback"
+   ]
+  ],
+  "lines": 224,
+  "lines_linked": 22,
+  "checkpoints": 9
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "a5be08cc56",
+   "checkpoint": "941a2b7d55bf",
+   "text": "fast-path local checkpoint, smarter fetch hint\n\nSkip the metadata refresh when the checkpoint is already on the local\nentire/checkpoints/v1 branch — no network round-trip on repeat attaches.\n\nWhen the refuse path fires, suggest a fetch from the configured\ncheckpoint_remote URL if one is set, instead of unconditionally pointing\nusers at origin."
+  },
+  {
+   "source": "transcript",
+   "commit": "a5be08cc56",
+   "checkpoint": "941a2b7d55bf",
+   "text": "[assistant] Reviewed the two commits on this branch. Here's my take.\n\n## What the change does\n\n- **`refreshForExistingCheckpoint` + `verifyCheckpointLocallyAvailable`** (cmd/entire/cli/attach.go:255-295): When HEAD already has an `Entire-Checkpoint` trailer, attach now first refreshes `entire/checkpoints/v1` (via the same fallback chain `entire resume` uses) and then refuses if the checkpoint still isn't present locally — preventing a silent overwrite of a colleague's session 0 on push.\n- **Tripwire** (cmd/entire/cli/checkpoint/committed.go:320-365): Logs a loud warning if `writeStandardCheckpointEntries`\n[assistant] TestAttach_*` and the full `checkpoint` package both pass locally.\n\n## Deeper pass — remaining observations\n\nNothing blocking. Three minor things worth noting:\n\n1. **Error hint hard-codes `origin`** (attach.go:290). If a user has `checkpoint_remote` configured (`getMetadataTree` tries it *before* origin), the suggested `git fetch origin entire/checkpoints/v1:entire/checkpoints/v1` may not be the right command — they'd need to fetch from their configured checkpoint remote. The fallback chain knows about this distinction but the user-facing hint doesn't. Consider detecting `remote.Configured(ctx\n[assistant] All green. Here's a summary of the two fixes:\n\n## What changed (attach.go only)\n\n1. **Fast-path check** — `ensureCheckpointAvailable` now reads `entire/checkpoints/v1` locally *before* refreshing. If the checkpoint is already present, no network fetch runs. Only on a local miss do we fall through to `getMetadataTree`'s fetch chain, then re-check.\n   - Repeat-attach on the same commit: one `ReadCommitted` on a local tree, zero fetches.\n   - First-attach-after-pull: one local read (miss), then the refresh chain, then another local read.\n   - Merged `refreshForExistingCheckpoint` + `verifyCheckpo"
+  },
+  {
+   "source": "prompt",
+   "commit": "a5be08cc56",
+   "checkpoint": "941a2b7d55bf",
+   "text": "can you review the changes in this branch?\n\n---\n\ncan you review again\n\n---\n\ncan we address 1-3 easily?\n\n---\n\nye"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a17eb092e6",
+   "checkpoint": "ef513bf77157",
+   "text": "attribution: scope Mixed to the touching session and unify authorship rule\n\nTwo related correctness bugs in line attribution:\n\n1. `entire blame` and `entire why` disagreed on the tag. resolveLine marks a\n   line [MX] only when its *preferred* candidate is mixed, but the why-time\n   enrichment path (enrichAttributionLineWithFetch) marked it [MX] if *any*\n   candidate was mixed. A line with a non-mixed preferred candidate and a mixed\n   secondary one rendered [AI] in blame and [MX] in why. Extract a single\n   authorshipForPreferred() rule used by both paths.\n\n2. Mixed was checkpoint-scoped, not session-scoped. readCheckpointContext\n   OR-combined the checkpoint-wide CombinedAttribution with every session's\n   attribution, so a line from an agent-only file got tagged [MX] whenever the\n   checkpoint *also* touched a hand-edited file. Scope Mixed to the session\n   whose work actually touched this file; fall back to the checkpoint-wide\n   attribution only when no session metadata resolves.\n\nAdds a regression test where the file-touching session is pure-AI but the\ncheckpoint's combined attribution is mixed — the line must stay [AI]."
+  },
+  {
+   "source": "transcript",
+   "commit": "a17eb092e6",
+   "checkpoint": "ef513bf77157",
+   "text": "[assistant] Now let me see the command definitions in attribution.go and how the existing labs commands (review, investigate) are registered in root:\n[assistant] Done. `blame` and `why` are now hidden Labs commands. Here's what changed:\n\n**`cmd/entire/cli/attribution.go`** — added `Hidden: true` to both `newBlameCmd` and `newWhyCmd`, with the same \"hidden during maturation\" comment style used by `review`/`org`/etc.\n\n**`cmd/entire/cli/labs.go`** — registered `blame` and `why` in the `experimentalCommands` slice and added `entire blame --help` / `entire why --help` to the \"Try:\" block in the labs overview.\n\n**`README.md`** — removed the two command-table rows (no other Labs command appears in that table) and reworded the prose to point users at `entire l\n[assistant] The bulk is `attribution.go`. Some files (repo_mirror, auth) look unrelated to blame/why — let me check whether they're genuine branch work or merge artifacts:\n[assistant] The `repo_mirror`/`auth` changes come from PR #1344 merged *into* this branch — not this PR's authored work. The real scope is the blame/why feature (`attribution.go`), the labs changes, and `root.go`/`README.md`. Let me read the core file before fanning out finders.\n[assistant] eal signatures. Findings below are about the attribution *logic*, ranked most severe first.\n\n### Correctness\n\n**1. `[AI]` flips to `[MX]` between `blame` and `why` — inconsistent authorship rules** (`attribution.go:479` vs `:372`)\n`resolveLine` marks a line Mixed **only if the *preferred* candidate is Mixed** (`if preferred != nil && preferred.Mixed`). But `enrichAttributionLineWithFetch` (the fetch path used by `entire why` when metadata is missing locally) sets `authorship = attributionMixed` if **any** candidate is Mixed. So a line with two candidates — preferred not-mixed, secondary mixed "
+  },
+  {
+   "source": "prompt",
+   "commit": "a17eb092e6",
+   "checkpoint": "ef513bf77157",
+   "text": "can you look at https://github.com/entireio/cli/pull/1305 can you check the branch out locally?\n\n---\n\ncan we make the commands hidden and advertise them in labs\n\n---\n\nplease commit and then let's do one last proper review\n\n---\n\nkeep going on all. do meaningful commits"
+  },
+  {
+   "source": "commit_message",
+   "commit": "437768e2f4",
+   "checkpoint": "4790d9fad21c",
+   "text": "git: open repositories with alternates-aware storage\n\nShared clones can store required objects only through .git/objects/info/alternates. Several checkpoint paths opened repositories with plain go-git storage, so local-only checkpoint commits reachable through alternates could look missing. That made metadata rebase and push paths silently skip checkpoint data and leave remote checkpoint branches incomplete.\n\nAdd a gitrepo package that centralizes repository opening, resolves linked worktree .git/commondir layouts, and wires go-git's AlternatesFS so multiple and nested alternates are readable. Route repository openings across the CLI and shared test harnesses through that package so go-git sees the same object graph everywhere.\n\nAlso close repository handles after use. Upstream go-git requires callers to close repositories to release filesystem storage resources, so the shared opener documents ownership and call sites now defer Close or register test cleanup."
+  },
+  {
+   "source": "prompt",
+   "commit": "437768e2f4",
+   "checkpoint": "4790d9fad21c",
+   "text": "The TestFetchAndRebase_SharedCloneLocalCommitInAlternate confirms that local clones depending on alternates work. It is currently failing. This is due to the AlternateFS not being properly set on go-git. Make the test pass without changing the test. A copy of the go-git code can be found at ../go-git.\n\n---\n\nWe need to also support multiple alternates.\n\n---\n\nAre there other places in the code base that open repositories without using the OpenRepository logic?\n\n---\n\nCan those points use the new func or are we better off extracting that logic into a separate package?\n\n---\n\nLet's do that. Add a comment on the non-converted sites explaining the reasoning of not migrating now.\n\n---\n\nActually, let's get all repo opening points to call the new package instead. That's a cleaner change.\n\n---\n\nrepo c"
+  },
+  {
+   "source": "commit_message",
+   "commit": "cf66e7aee1",
+   "checkpoint": "7f9d62c609b2",
+   "text": "attribution: surface session fallback and unreadable session metadata\n\nTwo silent-degradation paths in readCheckpointContext gave the user false\nconfidence:\n\n- When a blamed file matched none of a checkpoint's sessions (e.g. it was\n  renamed after the checkpoint), session selection silently fell back to the\n  first session and presented its agent/prompt as exact. Track whether the\n  match was by file, and when it was a multi-session fallback set a new\n  SessionFallback flag; `entire why` now prints a \"may have been renamed\" hint.\n\n- When a checkpoint's sessions all failed to read (summary present, per-session\n  metadata unreadable), the line kept a confident [AI] tag with blank\n  agent/model/prompt and no indication. Set MetadataMissing in that case so the\n  existing \"trailer-level attribution only\" hint shows and the why path retries\n  via remote fetch."
+  },
+  {
+   "source": "transcript",
+   "commit": "cf66e7aee1",
+   "checkpoint": "7f9d62c609b2",
+   "text": "[assistant] Now let me see the command definitions in attribution.go and how the existing labs commands (review, investigate) are registered in root:\n[assistant] Done. `blame` and `why` are now hidden Labs commands. Here's what changed:\n\n**`cmd/entire/cli/attribution.go`** — added `Hidden: true` to both `newBlameCmd` and `newWhyCmd`, with the same \"hidden during maturation\" comment style used by `review`/`org`/etc.\n\n**`cmd/entire/cli/labs.go`** — registered `blame` and `why` in the `experimentalCommands` slice and added `entire blame --help` / `entire why --help` to the \"Try:\" block in the labs overview.\n\n**`README.md`** — removed the two command-table rows (no other Labs command appears in that table) and reworded the prose to point users at `entire l\n[assistant] The bulk is `attribution.go`. Some files (repo_mirror, auth) look unrelated to blame/why — let me check whether they're genuine branch work or merge artifacts:\n[assistant] The `repo_mirror`/`auth` changes come from PR #1344 merged *into* this branch — not this PR's authored work. The real scope is the blame/why feature (`attribution.go`), the labs changes, and `root.go`/`README.md`. Let me read the core file before fanning out finders.\n[assistant] eal signatures. Findings below are about the attribution *logic*, ranked most severe first.\n\n### Correctness\n\n**1. `[AI]` flips to `[MX]` between `blame` and `why` — inconsistent authorship rules** (`attribution.go:479` vs `:372`)\n`resolveLine` marks a line Mixed **only if the *preferred* candidate is Mixed** (`if preferred != nil && preferred.Mixed`). But `enrichAttributionLineWithFetch` (the fetch path used by `entire why` when metadata is missing locally) sets `authorship = attributionMixed` if **any** candidate is Mixed. So a line with two candidates — preferred not-mixed, secondary mixed "
+  },
+  {
+   "source": "prompt",
+   "commit": "cf66e7aee1",
+   "checkpoint": "7f9d62c609b2",
+   "text": "can you look at https://github.com/entireio/cli/pull/1305 can you check the branch out locally?\n\n---\n\ncan we make the commands hidden and advertise them in labs\n\n---\n\nplease commit and then let's do one last proper review\n\n---\n\nkeep going on all. do meaningful commits"
+  },
+  {
+   "source": "commit_message",
+   "commit": "0326b95d0d",
+   "checkpoint": "91b11a441843",
+   "text": "attribution: collapse duplicate candidate/context structs into one type\n\nattributionCandidate and attributionCheckpointContext declared identical field\nlists with identical JSON tags, kept in sync only by a candidateFromContext()\ncast. Adding a field meant editing both. Alias attributionCandidate to\nattributionCheckpointContext so there is one definition, and drop the now-noop\nconversion helper."
+  },
+  {
+   "source": "transcript",
+   "commit": "0326b95d0d",
+   "checkpoint": "91b11a441843",
+   "text": "[assistant] Now let me see the command definitions in attribution.go and how the existing labs commands (review, investigate) are registered in root:\n[assistant] Done. `blame` and `why` are now hidden Labs commands. Here's what changed:\n\n**`cmd/entire/cli/attribution.go`** — added `Hidden: true` to both `newBlameCmd` and `newWhyCmd`, with the same \"hidden during maturation\" comment style used by `review`/`org`/etc.\n\n**`cmd/entire/cli/labs.go`** — registered `blame` and `why` in the `experimentalCommands` slice and added `entire blame --help` / `entire why --help` to the \"Try:\" block in the labs overview.\n\n**`README.md`** — removed the two command-table rows (no other Labs command appears in that table) and reworded the prose to point users at `entire l\n[assistant] The bulk is `attribution.go`. Some files (repo_mirror, auth) look unrelated to blame/why — let me check whether they're genuine branch work or merge artifacts:\n[assistant] The `repo_mirror`/`auth` changes come from PR #1344 merged *into* this branch — not this PR's authored work. The real scope is the blame/why feature (`attribution.go`), the labs changes, and `root.go`/`README.md`. Let me read the core file before fanning out finders.\n[assistant] eal signatures. Findings below are about the attribution *logic*, ranked most severe first.\n\n### Correctness\n\n**1. `[AI]` flips to `[MX]` between `blame` and `why` — inconsistent authorship rules** (`attribution.go:479` vs `:372`)\n`resolveLine` marks a line Mixed **only if the *preferred* candidate is Mixed** (`if preferred != nil && preferred.Mixed`). But `enrichAttributionLineWithFetch` (the fetch path used by `entire why` when metadata is missing locally) sets `authorship = attributionMixed` if **any** candidate is Mixed. So a line with two candidates — preferred not-mixed, secondary mixed "
+  },
+  {
+   "source": "prompt",
+   "commit": "0326b95d0d",
+   "checkpoint": "91b11a441843",
+   "text": "can you look at https://github.com/entireio/cli/pull/1305 can you check the branch out locally?\n\n---\n\ncan we make the commands hidden and advertise them in labs\n\n---\n\nplease commit and then let's do one last proper review\n\n---\n\nkeep going on all. do meaningful commits"
+  },
+  {
+   "source": "commit_message",
+   "commit": "73c561d2ac",
+   "checkpoint": "f678bfcfcfa0",
+   "text": "Remove attach v2 write path"
+  },
+  {
+   "source": "prompt",
+   "commit": "73c561d2ac",
+   "checkpoint": "f678bfcfcfa0",
+   "text": "Awesome, looks good, let's push that up\n\n---\n\n`if settings.CheckpointsWriteVersion(ctx) != 2 {` in cmd/entire/cli/strategy/manual_commit_push.go: shouldn't this always be true now? we're not writing to v2 anymore\n\n---\n\ncmd/entire/cli/attach.go still seems to support writing with v2"
+  },
+  {
+   "source": "commit_message",
+   "commit": "f114341f23",
+   "checkpoint": "5ff33f043f7c",
+   "text": "point v2-only attach refuses at the v2 ref\n\nIn v2-only mode (checkpoints_version: 2) the guard was telling users to\nfetch entire/checkpoints/v1, which is the wrong ref — v2 lives under\nrefs/entire/checkpoints/v2/main. The refresh step also called\ngetMetadataTree (v1) instead of getV2MetadataTree, so the best-effort\nrefresh did nothing useful when v2 was the active format.\n\nBranch both the refresh and the fetch-hint on the storage version. v1\nstays as-is; v2-only points at refs/entire/checkpoints/v2/main with a\nfully-qualified refspec (short names don't resolve outside refs/heads/)."
+  },
+  {
+   "source": "transcript",
+   "commit": "f114341f23",
+   "checkpoint": "5ff33f043f7c",
+   "text": "[assistant]  passed to `checkpoint.WriteCommitted`. The summary's `HasReview = true` derivation already falls out of the existing `state.Kind.IsReview()` seam.\n3. For the already-checkpointed branch (line 102 in attach.go — \"session already has a checkpoint, just offer to link it\"), either re-condense with the review fields set, or flip `HasReview` on the existing summary. The second is minimal; the first is more principled.\n\n## What this lets `entire review` become\n\nWith `attach --review` in place, `entire review` shrinks back to just the spawn path:\n\n- Default: launch configured agent with the review pr\n[assistant] Yes, clean mapping. `WriteCommittedOptions` already has `Kind` and `ReviewSkills` fields (added in the original review feature), and `runAttach` builds exactly one of those structs at `attach.go:160`. So the wiring is:\n\n## The one meaningful code change\n\nGive `runAttach` a review hook — either an extra param or (cleaner, given it already has 5 params) an options struct:\n\n```go\ntype attachOptions struct {\n    force        bool\n    reviewSkills []string // nil = not a review attach\n}\n\nfunc runAttach(ctx context.Context, w io.Writer, sessionID string, agentName types.AgentName, opts attachOptions\n[assistant] *Attach path.** Pulls the session's first user prompt from the transcript (we already parse transcripts in attach — `ag.ReadTranscript` + there's existing prompt extraction for `meta.FirstPrompt` at `attach.go:147`). Stores that as `ReviewPrompt`.\n\n## The real tradeoff\n\nYou gain flexibility (prompts can express workflow, not just command lists) and unified semantics (spawn and attach record the same shape). You lose structured queryability — today `review_skills: [\"/a\", \"/b\"]` is grep-friendly for \"which reviews ran `/test-auditor`?\" With prompts, that becomes substring match. For audit/report"
+  },
+  {
+   "source": "prompt",
+   "commit": "f114341f23",
+   "checkpoint": "5ff33f043f7c",
+   "text": "can you /simplify review_test.go\n\n---\n\n1. Medium: `attach --review`/`review attach` now resolve review skills before the real agent is known, which breaks the existing auto-detect and session-state resolution path for non-default agents. In both entrypoints, `resolveReviewSkills` runs off the flag value first ([attach.go](/Users/soph/Work/entire/devenv/cli/cmd/entire/cli/attach.go:83), [attach.go](/Users/soph/Work/entire/devenv/cli/cmd/entire/cli/attach.go:108), [review.go](/Users/soph/Work/entire/devenv/cli/cmd/entire/cli/review.go:456)), but `runAttach` only determines the actual agent later via `existingState.AgentType` or transcript auto-detection ([attach.go](/Users/soph/Work/entire/devenv/cli/cmd/entire/cli/attach.go:408)). A Gemini review session attached without `--agent gemini` wi"
+  },
+  {
+   "source": "commit_message",
+   "commit": "874f9a4baa",
+   "checkpoint": "fd021c1bcfad",
+   "text": "Refuse review-attach when HEAD's checkpoint is missing locally\n\nScenario: a colleague creates a branch with commits that carry\nbranch — git pull doesn't bring down entire/checkpoints/v1 (it's a\nseparate orphan branch). You run `entire review attach <session>`.\nPre-fix: resolveCheckpointID reads the trailer and finds the ID, but\nthe local metadata branch doesn't have the data. WriteCommitted\nsilently creates a FRESH checkpoint with that ID and this session as\nsession 0. On push, your local (single-session) checkpoint overwrites\nthe colleague's multi-session original on the remote.\n\nTwo defenses required, both now in place:\n\n1. Fetch entire/checkpoints/v1 before attach. Already done via\n   refreshForExistingCheckpoint -> getMetadataTree, which runs the\n   same fallback chain as `entire resume`: checkpoint-remote ->\n   treeless -> local -> full -> remote-tracking.\n\n2. If the checkpoint is STILL not present locally after refresh,\n   refuse with a concrete error pointing at the fetch command. Pull\n   this check into verifyCheckpointLocallyAvailable so runAttach\n   doesn't balloon the maintidx lint.\n\nError message tells the user what happened and what to do:\n\n  checkpoint Xxxxxx referenced by HEAD is missing from the local\n  entire/checkpoints/v1 branch (the remote fetch didn't bring it in\n  either). Creating a fresh checkpoint here would overwrite the\n  original session data on push. Run:\n\n      git fetch origin entire/checkpoints/v1:entire/checkpoints/v1\n\n  then re-run attach. If"
+  },
+  {
+   "source": "transcript",
+   "commit": "874f9a4baa",
+   "checkpoint": "fd021c1bcfad",
+   "text": "[user] Can you review the changes in this branch\n[assistant] Here's the review. I scoped it to the live work: the review feature, its supporting changes, and the uncommitted settings diff. Full branch is much larger but the older commits were already merged and shipped.\n\n## What looks good\n\n- **Marker scoping is carefully thought through.** `adoptPendingReviewMarkerInto` (`review.go:180-239`) handles three independent dimensions (worktree, agent, SHA) with distinct semantics — mismatch leaves the marker in place (so the correct session can adopt), stale SHA clears it (no future session will legitimately match). Each branch has a comment explaining *why*"
+  }
+ ],
+ "cost": {
+  "usd": 0.046537,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 211,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 11089
+ },
+ "trace_id": "b4ea67a216b816d3ed4ad1410f9bd9ef",
+ "error": null,
+ "trace_spans": 6
+}

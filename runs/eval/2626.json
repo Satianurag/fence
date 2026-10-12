@@ -1,0 +1,80 @@
+{
+ "issue": 2626,
+ "title": "pi: honor PI_CODING_AGENT_SESSION_DIR when resolving the session dir",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "no_record",
+  "confidence": 0.8,
+  "rationale": "The issue is about pi's GetSessionDir ignoring PI_CODING_AGENT_SESSION_DIR. The evidence covers Codex agent integration and a Codex attach path fix, which is different code and functionality from pi's session dir resolution, so nothing here records a decision about it.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "00a35f8b51",
+  "files_named": 1,
+  "symbols_named": 7,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/antigravity/antigravity.go",
+    57,
+    66,
+    "func:GetSessionDir"
+   ],
+   [
+    "cmd/entire/cli/agent/claudecode/claude.go",
+    93,
+    106,
+    "func:GetSessionDir"
+   ],
+   [
+    "cmd/entire/cli/agent/codex/codex.go",
+    572,
+    581,
+    "func:GetSessionDir"
+   ]
+  ],
+  "lines": 34,
+  "lines_linked": 10,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "eeaa9074b4",
+   "checkpoint": "410f22073a20",
+   "text": "feat: add Codex agent integration with E2E runner\n\nAdd full agent integration for OpenAI's Codex CLI:\n\n- Agent package (cmd/entire/cli/agent/codex/) implementing Agent,\n  HookSupport, and HookResponseWriter interfaces\n- Hook support for SessionStart, UserPromptSubmit, Stop events via\n  .codex/hooks.json config files\n- E2E test runner (e2e/agents/codex.go) for running Codex in E2E tests\n- Agent registered as \"codex\" with type \"Codex\"\n- 21 unit tests covering lifecycle parsing, hook install/uninstall,\n  idempotency, config preservation, and interface compliance\n\nCodex hooks use the same JSON stdin/stdout transport as Claude Code.\nPreToolUse is pass-through (shell only, no lifecycle action needed).\nNo SessionEnd hook — handled gracefully by the framework."
+  },
+  {
+   "source": "transcript",
+   "commit": "eeaa9074b4",
+   "checkpoint": "410f22073a20",
+   "text": "[assistant] ent/codex/AGENT.md` — full implementation one-pager\n- **Test script** at `scripts/test-codex-agent-integration.sh` — probe script for manual hook verification\n\n### Phase 2: E2E Runner\n- **`e2e/agents/codex.go`** — E2E agent runner with:\n  - `RunPrompt()` using `codex exec --dangerously-bypass-approvals-and-sandbox`\n  - `StartSession()` via tmux for interactive tests\n  - Concurrency gate of 2\n  - Transient error detection for rate limits/overloads\n\n### Phase 3: Implementation\n\n**Package: `cmd/entire/cli/agent/codex/`**\n\n| File | Purpose |\n|------|---------|\n| `codex.go` | Core Agent interface: "
+  },
+  {
+   "source": "commit_message",
+   "commit": "7047a995c8",
+   "checkpoint": "f0469a040e08",
+   "text": "fix issue with entire attach using wrong codex path"
+  },
+  {
+   "source": "prompt",
+   "commit": "7047a995c8",
+   "checkpoint": "f0469a040e08",
+   "text": "can you investigate: \n\n❯ go run cmd/entire/main.go attach 019d6c43-1537-7343-9691-1f8cee04fe59\ntranscript not found for agent \"codex\" with session 019d6c43-1537-7343-9691-1f8cee04fe59; is the session ID correct? (also tried auto-detecting other agents: transcript not found for any registered agent)\nexit status 1"
+  }
+ ],
+ "cost": {
+  "usd": 0.010787,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 132,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 2349
+ },
+ "trace_id": "fe427349a839d9f9af9bc00f8a7d109e",
+ "error": null,
+ "trace_spans": 6
+}

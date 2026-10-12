@@ -1,0 +1,80 @@
+{
+ "issue": 1197,
+ "title": "Codex opened from monorepo subfolder only runs subfolder hooks, not root hooks",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers WorktreeRoot's rename, caching, and race-condition fix. None of it addresses Codex hook discovery from a nested cwd. WorktreeRoot returning the git toplevel is deliberate, but nobody decided that root hooks should be skipped when Codex starts in a subfolder, and that behaviour comes from Codex's own discovery and trust handling.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "1622abc553",
+  "files_named": 2,
+  "symbols_named": 3,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/paths/paths.go",
+    87,
+    118,
+    "func:WorktreeRoot"
+   ]
+  ],
+  "lines": 32,
+  "lines_linked": 16,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "a9063e9e19",
+   "checkpoint": "9b09156d587a",
+   "text": "Rename paths.RepoRoot() to paths.WorktreeRoot() for clarity\n\nRepoRoot() calls git rev-parse --show-toplevel which returns the worktree\nroot, not the main repository root. Rename to WorktreeRoot() to avoid\nconfusion. Also remove the now-redundant strategy.GetWorktreePath() and\nstrategy.ClearWorktreePathCache() wrappers, replacing all call sites with\ndirect paths.WorktreeRoot() / paths.ClearWorktreeRootCache() calls."
+  },
+  {
+   "source": "transcript",
+   "commit": "a9063e9e19",
+   "checkpoint": "9b09156d587a",
+   "text": "[assistant] nsolidate into `paths.RepoRoot()` and accept the naming, or rename it?** The three options are:\n\n1. **Keep `GetWorktreePath` as a semantic alias** — callers in strategy can use the name that communicates intent, even though it delegates to `paths.RepoRoot()`\n2. **Remove `GetWorktreePath`, call `paths.RepoRoot()` directly** — simpler, one less function, but the name is misleading when you're thinking about worktrees\n3. **Rename `paths.RepoRoot()` to something clearer** like `paths.WorktreeRoot()` or `paths.WorkingTreeRoot()` — most accurate, but larger change\n\nWhich direction do you want to go?\n[assistant] Now I have a comprehensive picture. Let me design the plan.\n\nThe rename is:\n- `paths.RepoRoot()` → `paths.WorktreeRoot()` \n- `paths.ClearRepoRootCache()` → `paths.ClearWorktreeRootCache()`\n- Cache variables: `repoRootCache` → `worktreeRootCache`, etc.\n\nAnd then:\n- Remove `GetWorktreePath()` and `ClearWorktreePathCache()` from strategy/common.go\n- Replace all `GetWorktreePath()` calls in strategy/ with `paths.WorktreeRoot()`\n\n\n- Propagate the rename throughout the codebase, including updating `AbsPath` which calls `RepoRoot()` internally, and refreshing any references in CLAUDE.md\n- Skip creati"
+  },
+  {
+   "source": "prompt",
+   "commit": "a9063e9e19",
+   "checkpoint": "9b09156d587a",
+   "text": "in common.go we have a GetWorkTreePath function that i think shoudl be able to be acached like RepoRoot and GetCommonDir functions. Look at thos and update the GetworktreePath function:\n\n\n\n// GetWorktreePath returns the absolute path to the current worktree root.\n// This is the working directory path, not the git directory.\nfunc GetWorktreePath() (string, error) {\n    ctx := context.Background()\n    cmd := exec.CommandContext(ctx, \"git\", \"rev-parse\", \"--show-toplevel\")\n    output, err := cmd.Output()\n    if err != nil {\n        return \"\", fmt.Errorf(\"failed to get worktree path: %w\", err)\n    }\n    return strings.TrimSpace(string(output)), nil\n}\n\n---\n\ncommit this\n\n---\n\npush it to github\n\n---\n\nthe OpenRepository() that we call to open a git repository using go-git - does that read the entir"
+  },
+  {
+   "source": "commit_message",
+   "commit": "0bc4cf3aca",
+   "checkpoint": "84324d6610f2",
+   "text": "fix(paths): add mutex to protect RepoRoot cache from race conditions\n\nThe RepoRoot() function caches results in package-level variables without\nsynchronization. When parallel tests call DetectPresence() -> RepoRoot(),\nthey race on reading/writing these variables.\n\nAdd sync.RWMutex to protect repoRootCache and repoRootCacheDir."
+  },
+  {
+   "source": "transcript",
+   "commit": "0bc4cf3aca",
+   "checkpoint": "84324d6610f2",
+   "text": "[assistant] I see - this is a data race in `paths.RepoRoot()`. The race is between concurrent tests that are calling `paths.RepoRoot()` which uses package-level cached variables (`cachedRepoRoot` and `cachedRepoRootErr`).\n\nLet me look at the paths.go file to understand the caching mechanism:\n[assistant]  is our change. Let me check if this race condition existed before our PR, or if it's a pre-existing issue.\n\nLooking at the data race, it's happening in `paths.RepoRoot()` at lines 96, 107-108. The race is between tests `TestAgentDetection` and `TestGeminiCLIAgentDetection` which both call `DetectPresence()` which calls `RepoRoot()`.\n\nThis is a pre-existing issue in the codebase - the `paths.RepoRoot()` function has always had this race condition when called from parallel tests. Our PR didn't modify this file or introduce this race.\n\nLet me verify this by checking the git history for paths.go:\n[assistant] Good - we didn't modify `paths.go` in this PR. The race condition is a pre-existing issue. Let me verify this by checking if the test files `agent_test.go` were modified by us:\n[assistant] Right - our commits don't touch `paths.go` or `agent_test.go`. This is a pre-existing race condition in the codebase that happened to show up when running the tests with `-race` flag.The race is in `paths.RepoRoot()` which uses unprotected package-level cache variables. This has nothing to do with our changes - it's just that CI runs with `-race` and the race detector found it.\n\nOptions:\n1. Fix the race condition (even though it's not our bug)\n2. Skip it and let the user know it's pre-existing\n\nSince it's blocking the PR, I should probably fix it. But let me confirm with the user first."
+  },
+  {
+   "source": "prompt",
+   "commit": "0bc4cf3aca",
+   "checkpoint": "84324d6610f2",
+   "text": "yes\n\n---\n\nSome more PR comments now, do the same for these\n\n---\n\nargh, we have a test failure. can you look it up? https://github.com/entireio/cli/actions/runs/21234389076/job/61099193684?pr=85\n\nseems like a race condition in the tests\n\n---\n\nyeah do it, then update the PR description"
+  }
+ ],
+ "cost": {
+  "usd": 0.018615,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 162,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4231
+ },
+ "trace_id": "db5694e3d5806481879c406b4f25d268",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,194 @@
+{
+ "issue": 2664,
+ "title": "pre-push v1 fallback fetch is SIGKILLed at the push budget, leaves tmp_pack_* behind, and never converges (36 GB of temp packs)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers the push/fetch/rebase code but never discusses what happens when the fetch is killed at the budget, leftover tmp_pack files, per-clone locking, or retry backoff. The reported non-convergence is an unconsidered side effect, not a chosen behaviour. The only nearby mention, the perf-span commit, says 'Instrumentation only; no behavior change', and its transcript refers to timeout hardening as a fix still to be done.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "822d3cdc40",
+  "files_named": 2,
+  "symbols_named": 5,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/push_common.go",
+    149,
+    174,
+    "func:pushRefIfNeeded"
+   ],
+   [
+    "cmd/entire/cli/strategy/push_common.go",
+    561,
+    690,
+    "func:fetchAndRebaseRefCommon"
+   ]
+  ],
+  "lines": 156,
+  "lines_linked": 111,
+  "checkpoints": 22
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "61ea26cc58",
+   "checkpoint": "94411f5e2680",
+   "text": "strategy: generalize push and fetch to any ref\n\npushBranchIfNeeded becomes pushRefIfNeeded; doPushBranch becomes\ndoPushRef; fetchAndRebaseSessionsCommon takes a ReferenceName. Branch\nrefs keep the has-unpushed optimization and the standard remote-tracking\ndestination; non-branch refs use a generic +<ref>:<ref> refspec and a\ntemp fetch ref. PrePush iterates refs.Push instead of pushing the v1\nbranch literal. The post-sync helper folds into setLocalAfterSync, which\ncalls AdvanceCommittedPrimary when ref is the configured Primary and a\nplain SetReference otherwise."
+  },
+  {
+   "source": "transcript",
+   "commit": "61ea26cc58",
+   "checkpoint": "94411f5e2680",
+   "text": "[assistant] ranchName`. Today `Push = [v1Branch]` always, so the iteration is a one-element loop. When v1.1 push lands later, the resolver appends v1.1; no call-site change needed.\n\n`pushBranchIfNeeded` becomes `pushRefIfNeeded(ctx, target, ref)` and accepts any `plumbing.ReferenceName`. The refspec changes from `+refs/heads/<branch>:refs/heads/<branch>` to `+<ref>:<ref>`. For branch refs this is identical to today; for non-branch refs (future v1.1) it works without remote-tracking. The \"has unpushed\" optimization stays for branches (consulting `refs/remotes/<target>/<branch.Short()>`) and is skipped for \n[assistant] urns true when `Primary` is in `Push` (the rule today happens to coincide with \"is a branch,\" but the actual semantic is \"we push it, so origin tracks it\"). No call-site changes.\n\nThis works because `pushRefIfNeeded` and `fetchAndRebaseSessionsCommon` already accept any `plumbing.ReferenceName` after section 2. The refspec `+refs/entire/checkpoints/v1.1:refs/entire/checkpoints/v1.1` is valid git; the server stores it under `refs/entire/...` on the remote side; no remote-tracking ref is created locally for it (`refs/remotes/origin/refs/entire/...` is not standard). That's fine — the \"has unpush\n[assistant] Task 6 complete. Stopping for review.\n\n**What changed:**\n- `cmd/entire/cli/strategy/push_common.go`:\n  - `pushBranchIfNeeded(target, branchName string)` → `pushRefIfNeeded(target string, ref plumbing.ReferenceName)`. Branch refs keep the `hasUnpushedSessionsCommon` optimization; non-branch refs skip it and let git handle no-op pushes.\n  - `doPushBranch` → `doPushRef`. Display strings use `refDisplayName(ref)` (short name for branches, full ref otherwise).\n  - `tryPushSessionsCommon` builds a refspec — bare branch name for branches; `+<ref>:<ref>` force refspec for non-branch refs.\n  - `fetchAn"
+  },
+  {
+   "source": "prompt",
+   "commit": "61ea26cc58",
+   "checkpoint": "94411f5e2680",
+   "text": "commit and continue"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d5066d726b",
+   "checkpoint": "9ba33d6ea655",
+   "text": "fix: rebase metadata branch instead of creating merge commits\n\nWhen syncing diverged entire/checkpoints/v1 branches (e.g. after cloning\nan Entire-enabled repo), cherry-pick local commits onto remote tip instead\nof creating a merge commit. This keeps the metadata branch history linear.\n\nAssisted-by: Claude Opus 4.6 <noreply@anthropic.com>"
+  },
+  {
+   "source": "transcript",
+   "commit": "d5066d726b",
+   "checkpoint": "9ba33d6ea655",
+   "text": "[assistant] Good, imports look correct. Now let me check that `checkpoint` import is needed in `push_v2.go` (where `createMergeCommitCommon` is used) and that it's no longer needed in `push_common.go`.\n[assistant] Good, `checkpoint` is no longer used in `push_common.go`. Now let me verify the `io` import is still needed (used by `startProgressDots`).\n\nLet me verify the full file looks correct and then run the tests.\n[assistant] The v2 push path (`push_v2.go`) also uses tree merges but that's a different ref system. The user's issue is about the `entire/checkpoints/v1` branch which is handled by `push_common.go`. Let me run the tests.\n[assistant]  because `dbus-launch` isn't available in this environment — a pre-existing environment issue, not related to my change. All strategy and integration tests pass.\n\nHere's a summary of the changes:\n\n**`push_common.go`** — Replaced `fetchAndMergeSessionsCommon` with `fetchAndRebaseSessionsCommon`:\n- Instead of flattening both trees and creating a merge commit with 2 parents, it now:\n  1. Finds the merge base between local and remote\n  2. Fast-forwards if local is behind remote\n  3. Collects local-only commits since the merge base\n  4. Cherry-picks them onto the remote tip using the existing `cher"
+  },
+  {
+   "source": "prompt",
+   "commit": "d5066d726b",
+   "checkpoint": "9ba33d6ea655",
+   "text": "Cloning a Entire-enabled repository without the metadata branch results on a new \"Merge remote session logs\" merge commit to align both trees. Instead of that, let's make sure we rebase those commits."
+  },
+  {
+   "source": "commit_message",
+   "commit": "6f104c7ec7",
+   "checkpoint": "8184f5f2a970",
+   "text": "Don't --unshallow on push hot path: it's a global op, not ref-scoped\n\ngit's --unshallow removes ALL shallow boundaries in .git/shallow, not\njust the one for the ref being fetched. On a shallow clone of a large\nrepo it pulls the entire repository history (we observed 687 MB on\nentirehq/entire). Used from the push hook, this hangs every push on\nshallow repos until the full clone arrives.\n\nThe downstream reconcile/rebase paths already respect .git/shallow\n(collectCommitChain stops at shallow boundaries; collectCommitsSince\nuses git rev-list which respects them natively). When the local view\nis shallow-truncated, the merge-base check may report \"disconnected\"\nwhere the actual chains share ancestry below the boundary — but the\ncherry-pick path it routes through still produces a correct result,\nbecause it picks up exactly the commits that aren't yet on the remote.\n\nRemove Unshallow from:\n  - fetchAndRebaseSessionsCommon (push hot path)\n  - FetchMetadataBranch (resume/explain fallback — only needs blobs)\n  - FetchV2MainRef (same)\n\nKeep Unshallow on metadata_reconcile's doctor v2 disconnection check\nsince it's only reached from `entire doctor`, an explicit\nuser-invoked diagnostic where the cost is acceptable.\n\nVerified by re-running the full unit suite (5304 tests) and the\nfetch-flag regression coverage from TestFetch_Unshallow /\nTestFetch_Shallow."
+  },
+  {
+   "source": "transcript",
+   "commit": "6f104c7ec7",
+   "checkpoint": "8184f5f2a970",
+   "text": "[assistant] It does fetch before reconciling — that's not the gap. Let me show you the relevant slice of `fetchAndRebaseSessionsCommon` in `cmd/entire/cli/strategy/push_common.go:306`:\n\n```go\n// Push failed - likely non-fast-forward. Try to fetch and rebase.\nfmt.Fprintf(os.Stderr, \"[entire] Syncing %s with remote...\", branchName)\n...\nif output, fetchErr := remote.Fetch(ctx, remote.FetchOptions{\n    Remote:   fetchTarget,\n    RefSpecs: []string{refSpec},\n    NoTags:   true,\n}); fetchErr != nil {\n    return fmt.Errorf(\"fetch failed: %s\", output)\n}\n...\n// Reconcile disconnected metadata branches before rebas\n[assistant] Now `push_common.go` which calls `cherryPickOnto`:\n[assistant] Now the reconcile/rebase fetch in `push_common.go` needs `Unshallow: true` so merge-base sees the full chain:\n[assistant] Five places set `Unshallow: true`. The push hot path (`push_common.go`) is the problem. The two `git_operations.go` calls also shouldn't — they're called from resume.go's fallback and don't need full ancestry. Only the `doctor` v2 disconnection check (an explicit user-invoked diagnostic) is in scope for `--unshallow`.\n\nThe reasoning: my shallow-aware walk (`collectCommitChain` respecting `.git/shallow`) already makes the cherry-pick path produce correct output on shallow repos. The merge-base may return \"disconnected\" falsely, but that just routes us through the cherry-pick path which works co"
+  },
+  {
+   "source": "prompt",
+   "commit": "6f104c7ec7",
+   "checkpoint": "8184f5f2a970",
+   "text": "can you review this branch pr?\n\n---\n\ncan you review again\n\n---\n\nexit"
+  },
+  {
+   "source": "commit_message",
+   "commit": "69ab4ff2f5",
+   "checkpoint": "ac1d8cf593d3",
+   "text": "feat: support URL targets in push infrastructure\n\nAllow pushBranchIfNeeded, doPushBranch, and fetchAndMergeSessionsCommon\nto accept a URL directly instead of only a git remote name. When pushing\nto a URL, remote tracking ref checks are skipped (no local refs exist)\nand temp refs are used for fetch operations. This prepares for pushing\ncheckpoint branches directly to URLs without creating named remotes."
+  },
+  {
+   "source": "transcript",
+   "commit": "69ab4ff2f5",
+   "checkpoint": "ac1d8cf593d3",
+   "text": "[assistant]  in `versioncheck_test.go:280`** — Uses `errors.New(...)` without importing `errors`.\n5. **Windows backslash rejection in `validateRemoteURL`** (`checkpoint_remote.go:102`) — Rejects `\\` which breaks Windows local paths like `C:\\path\\repo.git`.\n6. **`fetchBranchFromRemote` docstring mismatch** (`checkpoint_remote.go:175`) — Docstring says errors are returned to caller, but implementation swallows them and returns `nil`.\n7. **Hint message only references `settings.json`** (`push_common.go:94`) — Should mention `settings.local.json` too since settings are merged from both.\n\nWant me to fix these?\n[assistant] It's a **mix of both**:\n\n- **Push** (`tryPushSessionsCommon`, line 99 of `push_common.go`) — uses **git CLI**: `git push --no-verify remote branchName`\n- **Fetch** (`fetchAndMergeSessionsCommon`, line 126) — uses **git CLI**: `git fetch remote refSpec`\n- **Merge logic** (lines 133-205) — uses **go-git**: opens the repo, reads local/remote trees, flattens and combines them in-memory, creates a merge commit via go-git plumbing, and updates the branch ref via `repo.Storer.SetReference`\n- **Pre-push checks** (`hasUnpushedSessionsCommon`, `pushBranchIfNeeded`) — uses **go-git** to read refs and com\n[assistant] Now fix `manual_commit_push.go` (trails push gating) and `push_common.go` (hint message):\n[assistant] Now fix the hint message in `push_common.go`:\n[assistant] er-provided)\n\n### Trails push fix (`strategy/manual_commit_push.go`)\n- `pushDisabled` now only gates checkpoint push; trails always push regardless of `push_sessions`\n\n### Hint message fix (`strategy/push_common.go`)\n- References both `settings.json` and `settings.local.json`\n\n### CLI flag (`setup.go`)\n- `--checkpoint-remote` now accepts `github:org/repo` format\n- `parseCheckpointRemoteFlag()` validates and stores structured config\n\n### Tests\n- Settings tests rewritten for structured format\n- New tests for URL parsing, derivation, owner extraction, credential redaction, fork detection, SSH/HTT"
+  },
+  {
+   "source": "prompt",
+   "commit": "69ab4ff2f5",
+   "checkpoint": "ac1d8cf593d3",
+   "text": "can you take a look at the comments on the PR\n\n---\n\ncan you point me to the code that pushes the checkpoints branch, is it using go-git or git cli\n\n---\n\nok, on the remote findings, we have these issues/trouble: \n\n- the remote currently used can be using git or http auth with github, the setting url should support both for GitHub urls\n- we should use a known remote name for setting up remotes so we can figure out if someone actively changed the remote for a branch and don't update this again (this is maybe tricky with initial setup?)\n- forks might need to be handled differently, makes no sense to give them a remote they most likely can't access anyhow\n\ncan you think a bit about this\n\n---\n\n1. let's do something like \"github: org/repo\" or more structured even, so we could support other backen"
+  },
+  {
+   "source": "commit_message",
+   "commit": "5d555f9b64",
+   "checkpoint": "38edc87c06af",
+   "text": "Add per-phase perf spans to checkpoint pre-push\n\nBreak the single coarse push_checkpoints_branch span into nested child\nspans so `entire doctor trace --hook pre-push` shows where time goes\nduring a slow checkpoint push instead of one opaque total:\n\n- resolve_push_settings: settings load + the one-time metadata-branch\n  fetch (fetchMetadataBranchIfMissing), otherwise invisible.\n- push_checkpoints_branch > git_push (+ git_push~1 for the retry): the\n  actual `git push` subprocess, where time goes on a slow transport.\n  Records an error flag on non-fast-forward rejection, which signals the\n  recovery path was taken.\n- push_checkpoints_branch > fetch_and_rebase > git_fetch: the sync\n  recovery path, splitting the network fetch from the local rebase.\n\nThreads the push span's context through pushBranchIfNeeded so the child\nsteps nest correctly. Instrumentation only; no behavior change."
+  },
+  {
+   "source": "transcript",
+   "commit": "5d555f9b64",
+   "checkpoint": "38edc87c06af",
+   "text": "[assistant]  so most pushes take the fetch→rebase→retry path — multiplying the already-slow `entire://` round-trips.\n\n## What I added\n\nNested perf spans inside the current v1 push path (`manual_commit_push.go`, `push_common.go`), all no-op functionally:\n\n- `resolve_push_settings` — settings load + any one-time metadata-branch fetch\n- `push_checkpoints_branch` (existing) now threads its context so children nest:\n  - `git_push` — the actual `git push` subprocess (and `git_push~1` for the retry). A rejected first push records an error flag → signals the recovery path ran.\n  - `fetch_and_rebase` → child `git_\n[assistant] That's the full instrumentation diff — uncommitted, in `manual_commit_push.go` and `push_common.go`. The four spans it adds (`resolve_push_settings`, `push_checkpoints_branch` → `git_push`/`git_push~1`, `fetch_and_rebase` → `git_fetch`) are exactly the ones that showed up in your `entire.io` trace, which confirms the binary you're running was built from this working tree.\n\nNow I'll implement the timeout-hardening fix. Let me read `execx` and the full `newCommand` so I harden every checkpoint git subprocess in one place."
+  },
+  {
+   "source": "prompt",
+   "commit": "5d555f9b64",
+   "checkpoint": "38edc87c06af",
+   "text": "when entiredb is enabled (/Users/ninawork/entire/devenv/entiredb), pushes of checkpoints take forever.\n\nwhat's going on? we can add debugging output as needed (doctor trace spans/hooks etc.)\n\n---\n\nSo v2 is being removed and entiredb isn't using it anymore. I don't have a new slow push example yet - it's being reported by others\n\n---\n\nthis is what other people are seeing:\n```\n[entire] Pushing entire/checkpoints/v1 to origin.............................................\n[entire] Syncing entire/checkpoints/v1 with remote...........................................................................................................................\n```\n\nbut my last push was fast\n\n---\n\nI just checked out an old branch that is definitely out of date and it was even faster:\n```\n➜  entiredb git:(test-2) "
+  },
+  {
+   "source": "commit_message",
+   "commit": "449c777101",
+   "checkpoint": "49c40909c8f5",
+   "text": "Respect .git/shallow when walking checkpoint history for reconcile\n\ncollectCommitChain and the cherry-pick path used go-git to walk\ncommit.ParentHashes. go-git does not consult .git/shallow, so on a\nshallow checkpoint repo the walk strolled past the boundary into stale\npack objects — producing a phantom chain that the reconcile path then\nproposed to cherry-pick onto the remote tip, duplicating commits that\nalready lived on the remote under their original SHAs.\n\nRead the shallow set once at the top of each reconcile/rebase entry\npoint and pass it down. collectCommitChain stops at shallow commits;\ntreeChangesForCherryPick treats shallow-boundary commits as roots and\ndiffs them against an empty tree, so the cherry-pick contributes the\ncommit's full content rather than a delta against a stale parent.\n\nThis is independent of the auto-unshallow fix: a future shallow file\nintroduced by any other tool (manual git clone --depth, an unrelated\nplumbing helper) would otherwise still trigger the same bug."
+  },
+  {
+   "source": "transcript",
+   "commit": "449c777101",
+   "checkpoint": "49c40909c8f5",
+   "text": "[assistant] It does fetch before reconciling — that's not the gap. Let me show you the relevant slice of `fetchAndRebaseSessionsCommon` in `cmd/entire/cli/strategy/push_common.go:306`:\n\n```go\n// Push failed - likely non-fast-forward. Try to fetch and rebase.\nfmt.Fprintf(os.Stderr, \"[entire] Syncing %s with remote...\", branchName)\n...\nif output, fetchErr := remote.Fetch(ctx, remote.FetchOptions{\n    Remote:   fetchTarget,\n    RefSpecs: []string{refSpec},\n    NoTags:   true,\n}); fetchErr != nil {\n    return fmt.Errorf(\"fetch failed: %s\", output)\n}\n...\n// Reconcile disconnected metadata branches before rebas\n[assistant] Now `push_common.go` which calls `cherryPickOnto`:"
+  },
+  {
+   "source": "prompt",
+   "commit": "449c777101",
+   "checkpoint": "49c40909c8f5",
+   "text": "I just got this on the ../entiredb folder:\n\n\n  ⎿  [entire] Pushing entire/checkpoints/v1 to origin.........\n     [entire] Syncing entire/checkpoints/v1 with remote....[entire] Detected disconnected session metadata (local and remote share no common ancestor)\n     .[entire] Cherry-picking 966 local checkpoint(s) onto remote...\n\n\ncan we anlaysis this? where is the diff, why so many? I should have 10-20 checkpoints local max\n\n---\n\nok, so wait: Local v1 root: c6b73a6799 \"Initialize metadata branch\" — 2026-04-26.\n\nwhat branch is this\n\n---\n\ncontinue\n\n---\n\nok, but wait: \n\n- c6b73a6799 is the root commit local and remote\n- if I do \"git log\" I only see commit be156aa7cc38c2c6117246cb8adad068a3886351 as first commit, then my new on top\n- again be156aa7cc38c2c6117246cb8adad068a3886351 is local and re"
+  },
+  {
+   "source": "commit_message",
+   "commit": "584c0e3016",
+   "checkpoint": "10eb4a886bf0",
+   "text": "Move metadata reconciliation to pre-push and doctor only\n\nInstead of eagerly reconciling disconnected metadata branches on every\ncheckpoint read (ListCheckpoints, getCheckpointStore, getBranchCheckpoints),\nlimit reconciliation to two explicit fix points:\n\n1. Pre-push hook: reconcile in fetchAndMergeSessionsCommon() after fetch\n   but before tree merge, so local branch is consistent before combining.\n2. entire doctor: detect disconnected branches, explain the situation,\n   and offer to fix (with --force support).\n\nAll other read paths now use WarnIfMetadataDisconnected() which prints a\none-time warning pointing users to 'entire doctor' without attempting repair.\n\n- Add IsMetadataDisconnected() for lightweight detection\n- Add WarnIfMetadataDisconnected() with sync.Once warning\n- Remove EnsureMetadataReconciled() and its global state\n- Broaden doctor command to \"Diagnose and fix session issues\"\n- Add 5 tests for IsMetadataDisconnected covering all edge cases\n- Fix pre-existing missing closing brace in common_test.go"
+  },
+  {
+   "source": "transcript",
+   "commit": "584c0e3016",
+   "checkpoint": "10eb4a886bf0",
+   "text": "[assistant] tCheckpointStore()` with `WarnIfMetadataDisconnected()`\n\n**`explain.go`** — Replaced `strategy.EnsureMetadataReconciled()` in `getBranchCheckpoints()` with `strategy.WarnIfMetadataDisconnected()`\n\n**`push_common.go`** — Added `ReconcileDisconnectedMetadataBranch(repo)` call in `fetchAndMergeSessionsCommon()` after fetch+repo open, before reading local ref for tree merge\n\n**`doctor.go`** — Broadened command description. Added `checkDisconnectedMetadata()` that detects, explains, and offers to fix disconnected branches (with `--force` support and accessible form). Called before the stuck session"
+  },
+  {
+   "source": "prompt",
+   "commit": "584c0e3016",
+   "checkpoint": "10eb4a886bf0",
+   "text": "ok we're working on the pr some more.\n\nbetter approach, only use in two situations:\n\npre-push before we merge trees\nin entire doctor, with detection and pointers to run doctor\n\nso we can remove it from the other places and just have it be done with what is invoked from the pre-push hook. it has to be done before we do the tree merge in the pre-push. \n\nthen in the other places where a disconnected branch may cause unexpected behaviour, like missing checkpoints, briefly explain the situation to the user and offer `entire doctor` as a fix\n\n\nthe entire doctor implemenation just does the same thing,  but behaves like other doctor operations, explaining what it's found and fixing it.\n\n---\n\npush it to the branch"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a34f42ec95",
+   "checkpoint": "59c5d9a87fcb",
+   "text": "fix: use git rev-list to collect local-only commits for rebase\n\nThe first-parent walk missed commits reachable through merge parents,\ncausing ancestors older than the true merge-base to be replayed. This\ncould resurrect deleted checkpoint shards. Switch to git rev-list\n--reverse --topo-order <exclude>..<tip> which correctly enumerates\nonly commits reachable from local but not from remote.\n\nAssisted-by: Claude Opus 4.6 <noreply@anthropic.com>"
+  },
+  {
+   "source": "transcript",
+   "commit": "a34f42ec95",
+   "checkpoint": "59c5d9a87fcb",
+   "text": "[assistant] Good, imports look correct. Now let me check that `checkpoint` import is needed in `push_v2.go` (where `createMergeCommitCommon` is used) and that it's no longer needed in `push_common.go`.\n[assistant] Good, `checkpoint` is no longer used in `push_common.go`. Now let me verify the `io` import is still needed (used by `startProgressDots`).\n\nLet me verify the full file looks correct and then run the tests.\n[assistant] The v2 push path (`push_v2.go`) also uses tree merges but that's a different ref system. The user's issue is about the `entire/checkpoints/v1` branch which is handled by `push_common.go`. Let me run the tests.\n[assistant]  because `dbus-launch` isn't available in this environment — a pre-existing environment issue, not related to my change. All strategy and integration tests pass.\n\nHere's a summary of the changes:\n\n**`push_common.go`** — Replaced `fetchAndMergeSessionsCommon` with `fetchAndRebaseSessionsCommon`:\n- Instead of flattening both trees and creating a merge commit with 2 parents, it now:\n  1. Finds the merge base between local and remote\n  2. Fast-forwards if local is behind remote\n  3. Collects local-only commits since the merge base\n  4. Cherry-picks them onto the remote tip using the existing `cher"
+  },
+  {
+   "source": "prompt",
+   "commit": "a34f42ec95",
+   "checkpoint": "59c5d9a87fcb",
+   "text": "commit staged changes"
+  }
+ ],
+ "cost": {
+  "usd": 0.044665,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 183,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 10691
+ },
+ "trace_id": "1869708b8465a0dde9c2c8f8ddd24703",
+ "error": null,
+ "trace_spans": 6
+}

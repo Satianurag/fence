@@ -1,0 +1,118 @@
+{
+ "issue": 1123,
+ "title": "Git hooks silently no-op when only .entire/settings.local.json exists (entire enable --local)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "IsSetUp was written to check only settings.json and noted as such, and IsSetUpAndEnabled was built on it to make hooks a no-op when Entire isn't enabled. Later, IsSetUpAny was added for the setup flow, but the evidence shows no decision that hooks should ignore a settings.local.json-only setup; that case was simply never considered.",
+  "quotes": [
+   {
+    "evidence_id": 5,
+    "source": "transcript",
+    "commit": "e3e0567ca9",
+    "checkpoint": "05683eec3f48",
+    "quote": "Good — `IsSetUp` only checks `settings.json`, and it's only used by `IsSetUpAndEnabled` which is used in hooks. For the new flow I need a broader check that includes `settings.local.json`."
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "91a4dc7d2a",
+  "files_named": 1,
+  "symbols_named": 4,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/settings/settings.go",
+    593,
+    602,
+    "func:IsSetUpAndEnabled"
+   ],
+   [
+    "cmd/entire/cli/settings/settings.go",
+    566,
+    573,
+    "func:IsSetUp"
+   ],
+   [
+    "cmd/entire/cli/settings/settings.go",
+    578,
+    588,
+    "func:IsSetUpAny"
+   ]
+  ],
+  "lines": 29,
+  "lines_linked": 28,
+  "checkpoints": 3
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "e0dc047eb7",
+   "checkpoint": "db193847867e",
+   "text": "make git hooks a noop if entire is not enabled in the repo"
+  },
+  {
+   "source": "transcript",
+   "commit": "e0dc047eb7",
+   "checkpoint": "db193847867e",
+   "text": "[assistant] All tests pass. Here's a summary of the fix:\n\n## Changes Made\n\n**1. `cmd/entire/cli/settings/settings.go`** - Added `IsSetUp()` function:\n```go\n// IsSetUp returns true if Entire has been set up in the current repository.\n// This checks if .entire/settings.json exists.\nfunc IsSetUp() bool {\n    settingsFileAbs, err := paths.AbsPath(EntireSettingsFile)\n    if err != nil {\n        return false\n    }\n    _, err = os.Stat(settingsFileAbs)\n    return err == nil\n}\n```\n\n**2. `cmd/entire/cli/hooks_git_cmd.go`** - Modified `initHookLogging()` to check if Entire is set up before initializing logging:\n```\n[assistant] Now I need to update `hooks_git_cmd.go` to use `IsSetUpAndEnabled()` instead of `IsSetUp()`.\n[assistant] All tests pass. Here's the updated summary:\n\n## Final Changes\n\n**1. `cmd/entire/cli/settings/settings.go`** - Added two functions:\n```go\n// IsSetUp returns true if Entire has been set up in the current repository.\nfunc IsSetUp() bool { ... }\n\n// IsSetUpAndEnabled returns true if Entire is both set up and enabled.\nfunc IsSetUpAndEnabled() bool { ... }\n```\n\n**2. `cmd/entire/cli/hooks_git_cmd.go`** - Uses `IsSetUpAndEnabled()`:\n```go\nfunc initHookLogging() func() {\n    // Don't create any files if Entire is not set up or is disabled in this repo.\n    if !settings.IsSetUpAndEnabled() {\n        ret\n[assistant] All tests pass. Here's the final summary of the fix:\n\n## Summary\n\nThe fix makes git hooks a complete no-op when Entire is not set up or is disabled:\n\n**1. `cmd/entire/cli/settings/settings.go`** - Added helper functions:\n- `IsSetUp()` - checks if `.entire/settings.json` exists\n- `IsSetUpAndEnabled()` - checks if set up AND `enabled: true`\n\n**2. `cmd/entire/cli/hooks_git_cmd.go`** - Two-level protection:\n\n```go\n// Package-level flag set when hooks should be disabled\nvar gitHooksDisabled bool\n\n// PersistentPreRunE - first check, sets the flag\nPersistentPreRunE: func(_ *cobra.Command, _ []string)"
+  },
+  {
+   "source": "prompt",
+   "commit": "e0dc047eb7",
+   "checkpoint": "db193847867e",
+   "text": "can you look at https://github.com/entireio/cli/issues/460 I'm not sure I understand where the cli would install in the global git hooks directory\n\n---\n\nCan you do the fix?\n\n---\n\nshould we also check if it's enabled?\n\n---\n\nI wonder: if entire is not enabled, should we just make the hooks an early noop?"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e3e0567ca9",
+   "checkpoint": "05683eec3f48",
+   "text": "restructed enable / setup"
+  },
+  {
+   "source": "transcript",
+   "commit": "e3e0567ca9",
+   "checkpoint": "05683eec3f48",
+   "text": "[assistant] Let me check how `IsSetUp` is used across the codebase.\n[assistant] Good — `IsSetUp` only checks `settings.json`, and it's only used by `IsSetUpAndEnabled` which is used in hooks. For the new flow I need a broader check that includes `settings.local.json`.\n\nNow let me implement the changes. I'll work on three things:\n\n1. Add `IsSetUpAny()` to settings (checks both files)\n2. Add `entire setup` command\n3. Modify root command and `entire enable`\n[assistant] Now I also need to add the `settings` import to `setup.go` since I'm using `settings.IsSetUpAny`:\n[assistant] Here's a summary of all changes made:\n\n### Changes\n\n**`cmd/entire/cli/settings/settings.go`** — Added `IsSetUpAny()` function that checks for both `settings.json` and `settings.local.json` (the existing `IsSetUp()` only checks `settings.json`).\n\n**`cmd/entire/cli/root.go`** — Modified root command's `RunE`: if in a git repo and Entire isn't set up yet, runs the setup flow instead of showing help. Once set up, shows help as before.\n\n**`cmd/entire/cli/setup.go`** — Three main additions:\n\n1. **`entire setup` command** (`newSetupCmd`) with `init` as alias:\n   - Fresh repo → runs full setup flow (a"
+  },
+  {
+   "source": "prompt",
+   "commit": "e3e0567ca9",
+   "checkpoint": "05683eec3f48",
+   "text": "I'd like to redo the intitial setup flow, currently we have `entire enable` and `entire disable`, can we: \n\n- running `entire` or `entire enable` or `entire init` on a repo that has no `.entire` folder yet, we start the flow to enable entire and add agents (basically what `entire enable` does now)\n- if you run `entire enable` on a repo that has `.entire/settings.json` yet we check if entire is disabled in this config or `.entire/settings.local.json` and then enable it, if it's not disable we just show it's enable\n- if you run `entire` on a repo that has `.entire/settings.json` (or only `.entire/settings.local.json`) we show help\n- if you run `entire init` on a repo that has `.entire/settings.json` (or only `.entire/settings.local.json`) we show which agents are enabled and let the user ena"
+  },
+  {
+   "source": "commit_message",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Add consistent context plumbing everywhere"
+  },
+  {
+   "source": "transcript",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "[user]  files and ~4300 lines across:\n\n- **Foundation layer**: `paths.RepoRoot()`, `paths.AbsPath()` -- the most deeply called functions\n- **Settings layer**: `settings.Load()`, `settings.Save()`, `settings.IsSetUp()`, etc.\n- **Git operations**: `openRepository()`, `GetCurrentBranch()`, `HasUncommittedChanges()`, `CheckoutBranch()`, etc.\n- **Agent interfaces**: `Agent.DetectPresence()`, `HookSupport.InstallHooks()`, `HookSupport.AreHooksInstalled()`, etc.\n- **Strategy interfaces**: `Strategy.SaveStep()`, `Strategy.Rewind()`, `Strategy.PostCommit()`, and many more\n- **Logging**: `logging.Init()`\n- **V"
+  },
+  {
+   "source": "prompt",
+   "commit": "783215ffff",
+   "checkpoint": "827909577c94",
+   "text": "Implement the following plan:\n\n# Plan: Add Context Plumbing Throughout the CLI\n\n## Context\n\n`main.go` creates a cancellable context (`context.WithCancel`) and passes it to Cobra via `rootCmd.ExecuteContext(ctx)`. However, no command retrieves it via `cmd.Context()`. Instead, ~120+ production code locations create `context.Background()`, losing cancellation support from SIGINT/SIGTERM and any parent context values.\n\n## Goal\n\nThread the root context from `main.go` through the entire call chain, replacing `context.Background()` with the properly propagated context. This enables signal-based cancellation to propagate to git operations, checkpoint writes, and other long-running work.\n\n## Exceptions (keep `context.Background()`)\n\n- `main.go:18` — this IS the root context\n- `telemetry/detached_un"
+  }
+ ],
+ "cost": {
+  "usd": 0.019679,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 240,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4302
+ },
+ "trace_id": "b66ea826537bc2c68ddfe59172dced1e",
+ "error": null,
+ "trace_spans": 6
+}

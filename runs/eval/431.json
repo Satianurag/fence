@@ -1,0 +1,62 @@
+{
+ "issue": 431,
+ "title": "GetWorktreeID fails with bare repo + worktree layout (.bare/worktrees/)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence describes extracting the worktree name from the `.git/worktrees/<name>/` path as the intended approach, but nothing shows that rejecting other layouts such as `.bare/worktrees/` was a deliberate choice. The bare-repo layout was simply not considered.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "3c37cf55fa",
+  "files_named": 1,
+  "symbols_named": 1,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/paths/worktree.go",
+    14,
+    51,
+    "func:GetWorktreeID"
+   ]
+  ],
+  "lines": 38,
+  "lines_linked": 38,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "48e7f2942b",
+   "checkpoint": "a4a8d7d25377",
+   "text": "feat(paths): add GetWorktreeID to extract internal worktree name\n\nAdds a function to extract the internal git worktree identifier from\nthe .git file in linked worktrees. For main worktrees (where .git is\na directory), returns empty string. For linked worktrees, extracts\nthe name from the .git/worktrees/<name>/ path.\n\nThis identifier is stable across `git worktree move` operations,\nmaking it ideal for worktree-specific shadow branch naming."
+  },
+  {
+   "source": "transcript",
+   "commit": "48e7f2942b",
+   "checkpoint": "a4a8d7d25377",
+   "text": "[user] hi\n[assistant] Plan complete and saved to `docs/plans/2026-02-02-worktree-specific-shadow-branches.md`. Two execution options:\n\n**1. Subagent-Driven (this session)** - I dispatch fresh subagent per task, review between tasks, fast iteration\n\n**2. Parallel Session (separate)** - Open new session with executing-plans, batch execution with checkpoints\n\nWhich approach?"
+  },
+  {
+   "source": "prompt",
+   "commit": "48e7f2942b",
+   "checkpoint": "a4a8d7d25377",
+   "text": "hi\n\n---\n\nOperation stopped by hook: Warning: Shadow branch conflict detected!\n\nBranch: entire/314004c\nExisting session: 8d1b0b56-370e-47c4-b992-58ef6f0c4c50\nFrom worktree: /Users/alex/workspace/cli/.worktrees/test-123\nStarted: 02 Feb 26 17:29 AEDT\n\nThis may indicate another agent session is active from a different worktree,\nor a previous session wasn't completed.\n\nOptions:\n1. Commit your changes (git commit) to create a new base commit\n2. Run 'entire rewind reset' to discard the shadow branch and start fresh\n3. Continue the previous session from the original worktree: /Users/alex/workspace/cli/.worktrees/test-123\n\n---\n\nwe are getting this warning when starting up claude:\n```\n❯ Operation stopped by hook: Warning: Shadow branch conflict detected!\n\n  Branch: entire/314004c\n  Existing session:"
+  }
+ ],
+ "cost": {
+  "usd": 0.010893,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 125,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 2393
+ },
+ "trace_id": "d0943c7cc6814819bab025d7eaa0544e",
+ "error": null,
+ "trace_spans": 6
+}

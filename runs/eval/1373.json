@@ -1,0 +1,86 @@
+{
+ "issue": 1373,
+ "title": "review: capture model for claude -p reviewer subprocesses (Claude reviewers record empty model)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.7,
+  "rationale": "The evidence shows the model hint and backfill mechanisms were built to capture models from hook payloads (Claude SessionStart) and from transcripts as a fallback. Nothing says that Claude `-p` reviewer subprocesses should record an empty model; the flaky empty value is a gap in the hint/backfill path, not a chosen behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "caa8d6fcdc",
+  "files_named": 3,
+  "symbols_named": 6,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/session_state.go",
+    202,
+    223,
+    "func:StoreModelHint"
+   ],
+   [
+    "cmd/entire/cli/strategy/manual_commit_condensation.go",
+    619,
+    630,
+    "func:sessionStateBackfillModel"
+   ]
+  ],
+  "lines": 34,
+  "lines_linked": 34,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "ebd859f630",
+   "checkpoint": "c3ef7e31dc12",
+   "text": "add ModelUpdate event type and model hint file storage\n\nModelUpdate is a new lifecycle event for hooks that carry model info but\nhave no other lifecycle significance (e.g., Gemini CLI's BeforeModel).\n\nStoreModelHint/LoadModelHint provide cross-process persistence via a\nlightweight .git/entire-sessions/{session_id}.model file. This bridges\nthe gap for agents that report the model on a hook that fires as a\nseparate CLI process before the session state file is created (Claude\nCode's SessionStart, Gemini CLI's BeforeModel). ClearSessionState now\nalso removes the hint file."
+  },
+  {
+   "source": "transcript",
+   "commit": "ebd859f630",
+   "checkpoint": "c3ef7e31dc12",
+   "text": "[user] d/entire/cli/agent/event.go`\n- Add `ModelUpdate` to `EventType` iota (after existing types)\n- Add case to `String()` method\n\n### 2. Add model hint storage functions\n**File**: `cmd/entire/cli/strategy/session_state.go`\n- `StoreModelHint(ctx, sessionID, model)` — writes `.git/entire-sessions/{session_id}.model`\n- `LoadModelHint(ctx, sessionID) string` — reads model hint, returns \"\" on error\n- Update `ClearSessionState` to also remove the `.model` hint file\n\n### 3. Claude Code: capture model from SessionStart\n**File**: `cmd/entire/cli/agent/claudecode/types.go`\n- Add `Model string \\`json:\"model\"\\\n[assistant] re's a summary of the changes:\n\n### Changes Made\n\n**1. `cmd/entire/cli/agent/event.go`** — Added `ModelUpdate` event type to the `EventType` iota and `String()` method.\n\n**2. `cmd/entire/cli/strategy/session_state.go`** — Added cross-process model persistence:\n- `StoreModelHint()` — writes `.git/entire-sessions/{session_id}.model`\n- `LoadModelHint()` — reads the model hint, returns \"\" on error\n- `ClearSessionState()` — now also removes the `.model` hint file\n\n**3. `cmd/entire/cli/agent/claudecode/types.go`** — Added `Model` field to `sessionInfoRaw` struct.\n\n**4. `cmd/entire/cli/agent/claudeco\n[user] aude Code and Gemini CLI agents. The plan included 6 steps plus verification.\n\n2. I created tasks and began implementing:\n   - Step 1: Added `ModelUpdate` event type to `event.go`\n   - Step 2: Added `StoreModelHint`, `LoadModelHint` to `session_state.go`, updated `ClearSessionState`\n   - Step 3: Added `Model` field to Claude Code's `sessionInfoRaw`, updated `parseSessionStart`, added tests\n   - Step 4: Added `beforeModelRaw` struct to Gemini CLI, `parseBeforeModel` method, updated tests\n   - Step 5: Added `handleLifecycleModelUpdate`, wired `ModelUpdate` dispatch, added hint reads to TurnStart"
+  },
+  {
+   "source": "prompt",
+   "commit": "ebd859f630",
+   "checkpoint": "c3ef7e31dc12",
+   "text": "Implement the following plan:\n\n# Plan: Add model tracking for Claude Code and Gemini CLI agents\n\n## Context\n\nPR #581 adds LLM model name tracking to session info, but missed two agents:\n- **Claude Code**: Sends `model` in `SessionStart` hook payload (confirmed in docs)\n- **Gemini CLI**: Sends `llm_request.model` in `BeforeModel` hook payload (confirmed in docs)\n\nBoth agents deliver model info on hooks that fire as **separate CLI processes** from TurnStart/TurnEnd. We need cross-process persistence for the model value.\n\nAdditionally, the PR review identified several secondary issues to fix.\n\n## Design: Model Hint Files\n\nStore model in `.git/entire-sessions/{session_id}.model` — a tiny text file that persists across hook invocations within the same session:\n- **Written by**: `handleLifecycle"
+  },
+  {
+   "source": "commit_message",
+   "commit": "8bbe414758",
+   "checkpoint": "66e7cddb010c",
+   "text": "Backfill Pi model into checkpoint metadata from transcript\n\nPi's hook events (session_start, before_agent_start, agent_end) carry no\nmodel field, so Event.Model was never set and checkpoint metadata recorded\nan empty \"model\" — even though every Pi assistant message records\nmessage.model (e.g. \"gpt-5.5\"), right next to the usage we already read.\n\nAdd an optional agent.ModelExtractor interface (resolved via the ungated\nAsModelExtractor helper, mirroring AsSessionBaseDirProvider) and implement\nit for Pi by reading message.model from the most recent active-branch\nassistant message — handling mid-session model changes. Condensation calls\nsessionStateBackfillModel to fill state.ModelName when it's empty, so\nhook-reported models (Claude Code, Gemini) still take precedence. This\nmirrors the existing transcript-based token-usage backfill.\n\nWhile here, extract pijsonl.ForEachActiveMessage to own the active-branch\nscan skeleton that CalculateTokenUsage, ExtractModifiedFilesFromOffset,\nExtractPrompts, and the new ExtractModel had each hand-rolled."
+  },
+  {
+   "source": "transcript",
+   "commit": "8bbe414758",
+   "checkpoint": "66e7cddb010c",
+   "text": "[assistant] tractModel` implementation: branch-aware (uses `ResolveActiveBranch`), returns the model from the **most recent** active-branch assistant message, so mid-session `/model` changes are reflected.\n5. **`manual_commit_condensation.go`** — `sessionStateBackfillModel` helper + a call right after the existing token-usage backfill. Guarded by `if state.ModelName == \"\"`, so hook-reported models (Claude Code, Gemini, etc.) always win.\n6. **`docs/architecture/agent-guide.md`** — documented the model location and backfill path.\n\n## Tests added\n- `ExtractModel`: linear, mid-session model change (most recen\n[assistant] t and note it.)\n- **Simplification #1:** `Provider` field is dead (never read). **Fix:** remove it + drop `\"provider\"` from fixtures.\n- **Simplification #2:** redundant `len(transcript)==0` guard in `sessionStateBackfillModel` (ExtractModel owns the empty case). **Fix:** remove.\n- **Altitude minor:** document the two-camp (gated/ungated) `As*` design on `DeclaredCaps`. **Fix:** one-line comment.\n- **Skip:** table-driven `ExtractModel` tests (the whole file uses per-test funcs — table form would be inconsistent); keeping `ExtractModel`'s own empty guard (intent marker at the interface boundary)\n[assistant] Now remove the redundant guard in `sessionStateBackfillModel`:\n[assistant]  for the helper.\n2. **Dead `Provider` field (Simplification).** Removed from `pijsonl.Message` — it was never read.\n3. **Redundant guard (Simplification).** Dropped the `len(transcript)==0` check in `sessionStateBackfillModel`; `ExtractModel` already owns the empty case.\n4. **Two-camp `As*` design (Altitude).** Added a doc comment on `DeclaredCaps` explaining that built-in-only capabilities (`SessionBaseDirProvider`, `ModelExtractor`) are deliberately excluded from the struct and resolve by type assertion alone.\n5. Wrapped the helper's error at each `pi` boundary (wrapcheck) with method-specif"
+  },
+  {
+   "source": "prompt",
+   "commit": "8bbe414758",
+   "checkpoint": "66e7cddb010c",
+   "text": "Can you take a look at the pi integration, for example in ../entire.io running git show entire/checkpoints/v1:49/d5e907970c/0/metadata.json gives you:\n\n\ngit show entire/checkpoints/v1:49/d5e907970c/0/metadata.json\n{\n  \"cli_version\": \"v0.6.3-nightly.202605220724.6d616b16-dev-be0bdf7d4\",\n  \"checkpoint_id\": \"49d5e907970c\",\n  \"session_id\": \"019e4fd4-807c-7243-9521-deb164dcd52c\",\n  \"strategy\": \"manual-commit\",\n  \"created_at\": \"2026-05-22T21:10:18.41727Z\",\n  \"branch\": \"dip/trails-detail-labels-generic-timeline\",\n  \"checkpoints_count\": 0,\n  \"files_touched\": [\n    \"frontend/src/domains/platform/trails/components/TrailTimeline.tsx\"\n  ],\n  \"agent\": \"Pi\",\n  \"model\": \"\",\n  \"turn_id\": \"c5461e2ae123\",\n  \"checkpoint_transcript_start\": 1190,\n  \"transcript_lines_at_start\": 1190,\n  \"token_usage\": {\n    \"inp"
+  }
+ ],
+ "cost": {
+  "usd": 0.020443,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 148,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4723
+ },
+ "trace_id": "5eecab859e49543804bfda763f824a16",
+ "error": null,
+ "trace_spans": 6
+}

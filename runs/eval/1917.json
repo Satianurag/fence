@@ -1,0 +1,86 @@
+{
+ "issue": 1917,
+ "title": "Concurrent git-refs checkpoint writes can silently lose completed data!",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.85,
+  "rationale": "The evidence describes Write as resolving the ref, reading the prior tip, creating a commit and calling SetReference, but nowhere discusses concurrency, locking, or compare-and-swap. The unconditional ref update was never shown to be a chosen trade-off; it was simply the straightforward implementation.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "fda9bb8dbc",
+  "files_named": 1,
+  "symbols_named": 4,
+  "spans": 2,
+  "span_list": [
+   [
+    "cmd/entire/cli/checkpoint/refs_store.go",
+    201,
+    211,
+    "func:setRef"
+   ],
+   [
+    "cmd/entire/cli/gitrepo/reftable.go",
+    197,
+    211,
+    "func:SetReference"
+   ]
+  ],
+  "lines": 26,
+  "lines_linked": 11,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "989c1c0872",
+   "checkpoint": "a4baf5553823",
+   "text": "Add git-refs per-checkpoint checkpoint backend\n\nSecond slice of #1471: a git-backed store that keeps one commit per\nrefs/entire/checkpoints/<shard>/<id> (tree root = checkpoint contents), sharing\nthe treeWriter subtree core with the git-branch store.\n\n- refs_store.go: gitRefsStore implements PersistentStore over per-checkpoint refs\n  (orphan-then-parented history, stamps refs-v1, no Vercel merge, List enumerates\n  local refs, optional AuthorReader). Reads resolve a ref → commit tree and use\n  shared read helpers; writes build the subtree via the embedded *treeWriter.\n- Share the tree-read helpers: the git-branch reader's Read/ReadSession* now\n  delegate to readSummaryFromCheckpointTree / readSession*FromTree free functions\n  (no behavior change) so both backends read the same way, just navigating to the\n  tree differently.\n- registry: BackendTypeGitRefs (\"git-refs\") registered built-in with gitBacked:true\n  + gitRefsBackendFactory; OpenEnv/OpenOptions gain RefFetcher; PrimaryIsRefs helper.\n- pushqueue.go: flock-protected JSONL push-discovery queue in the git common dir\n  (Enqueue/Drain/Remove); gitRefsStore.setRef enqueues best-effort. (Pre-push\n  consumption lands in the next commit.)\n- CheckpointVersionRefsV1 = \"refs-v1\"."
+  },
+  {
+   "source": "transcript",
+   "commit": "989c1c0872",
+   "checkpoint": "a4baf5553823",
+   "text": "[assistant]  the checkpoint-dir tree. The `git-branch` store splices it under `<shard>/<id>/` into the v1 root (unchanged); the `git-refs` store uses it as the **commit root tree**.\n\n**`cmd/entire/cli/checkpoint/refs_store.go`** (new) — `gitRefsStore{repo, blobFetcher}`:\n- `Write`: type-switch the union; resolve the ref, read prior tip (orphan if none), build new checkpoint-root tree via the shared builder, `CreateCommit` parented on prior tip (auto-signed), `SetReference`, then **enqueue for push** (PR 3).\n- `Read` / `List` (enumerate refs under prefix) / `ReadSessionContent|Metadata|Prompts` — reuse `pa\n[assistant] Only small early edits, no `refs_store.go`, nothing committed. Let me see exactly what it changed to decide whether to build on it or reset.\n[user]  the shard tree-surgery step. Read helpers extracted to free functions over `*FetchingTree` (`readSummaryFromCheckpointTree`, `readSession*FromTree`) and shared by both stores.\n- **`gitRefsStore`** (`refs_store.go`, 332 lines): full `PersistentStore` + `AuthorReader`, one commit per `refs/entire/checkpoints/&lt;shard&gt;/&lt;id&gt;` whose tree root is the checkpoint contents; orphan-then-parented per-checkpoint history; stamps `refs-1`; no Vercel merge; `List` enumerates local refs.\n- **Registered** `git-refs` in the built-in registry with `gitBacked: true`.\n- **Tests**: 8 unit tests + a seam \n[assistant] The registration and `refs_store.go` surface look complete and correct (FetchingTree reuse for blob-fetch, full contract). Now the real gate — let me independently run lint + the regression-critical suites."
+  },
+  {
+   "source": "prompt",
+   "commit": "989c1c0872",
+   "checkpoint": "a4baf5553823",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  },
+  {
+   "source": "commit_message",
+   "commit": "d71e0717e2",
+   "checkpoint": "2bd3564e62eb",
+   "text": "Validate checkpoint ID in RefName (reject malformed refs)\n\nRefName previously returned refs/entire/checkpoints// for an empty/invalid\ncheckpoint ID, and callers built on the convention that the ID was already\nvalidated. Make RefName return (plumbing.ReferenceName, error), erroring when the\nID is empty or an unrecognized format, so a bad ID can't silently become a\nmalformed ref that gets pushed/fetched/looked up. Store call sites\n(refBase/setRef/resolveRefMaybeFetch/GetCheckpointAuthor) and the explain-on-clone\nfetch propagate the error; tests use a mustRefName helper for known-valid IDs and\nadd a RefName_RejectsInvalidID case."
+  },
+  {
+   "source": "transcript",
+   "commit": "d71e0717e2",
+   "checkpoint": "2bd3564e62eb",
+   "text": "[assistant]  the checkpoint-dir tree. The `git-branch` store splices it under `<shard>/<id>/` into the v1 root (unchanged); the `git-refs` store uses it as the **commit root tree**.\n\n**`cmd/entire/cli/checkpoint/refs_store.go`** (new) — `gitRefsStore{repo, blobFetcher}`:\n- `Write`: type-switch the union; resolve the ref, read prior tip (orphan if none), build new checkpoint-root tree via the shared builder, `CreateCommit` parented on prior tip (auto-signed), `SetReference`, then **enqueue for push** (PR 3).\n- `Read` / `List` (enumerate refs under prefix) / `ReadSessionContent|Metadata|Prompts` — reuse `pa\n[assistant] Only small early edits, no `refs_store.go`, nothing committed. Let me see exactly what it changed to decide whether to build on it or reset.\n[user]  the shard tree-surgery step. Read helpers extracted to free functions over `*FetchingTree` (`readSummaryFromCheckpointTree`, `readSession*FromTree`) and shared by both stores.\n- **`gitRefsStore`** (`refs_store.go`, 332 lines): full `PersistentStore` + `AuthorReader`, one commit per `refs/entire/checkpoints/&lt;shard&gt;/&lt;id&gt;` whose tree root is the checkpoint contents; orphan-then-parented per-checkpoint history; stamps `refs-1`; no Vercel merge; `List` enumerates local refs.\n- **Registered** `git-refs` in the built-in registry with `gitBacked: true`.\n- **Tests**: 8 unit tests + a seam \n[assistant] The registration and `refs_store.go` surface look complete and correct (FetchingTree reuse for blob-fetch, full contract). Now the real gate — let me independently run lint + the regression-critical suites."
+  },
+  {
+   "source": "prompt",
+   "commit": "d71e0717e2",
+   "checkpoint": "2bd3564e62eb",
+   "text": "yeah let's do 2\n\n---\n\n<task-notification>\n<task-id>aacf965542e77a7f4</task-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/6852b33a-0d22-4364-aa6c-8de706ecc215/tasks/aacf965542e77a7f4.output</output-file>\n<status>failed</status>\n<summary>Background agent \"Implement gitRefsStore + treeWriter\" was running when the previous Claude Code process exited and did not complete. Its in-process state was lost. Check its worktree/output for partial work before assuming the task landed.</summary>\n</task-notification>\n\n---\n\n<task-notification>\n<task-id>aae3431c7f240e772</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli-experiments/68fc4cd3-542e-47f4-812e-c60eaecaaeed/tasks/aae3431c7f240e772.output"
+  }
+ ],
+ "cost": {
+  "usd": 0.022465,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 135,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 5261
+ },
+ "trace_id": "926d0b78cfde418d450e3159c0ed4635",
+ "error": null,
+ "trace_spans": 6
+}

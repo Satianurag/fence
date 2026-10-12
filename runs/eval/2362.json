@@ -1,0 +1,131 @@
+{
+ "issue": 2362,
+ "title": "entire status collapses multiple sessions per agent, and mutates session state while reporting it",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "decision",
+  "confidence": 0.9,
+  "rationale": "The evidence shows status finalizing exited sessions on read was an intentional design: the author explicitly reverted to 'finalize on detection' and wired the sweep into both status and status --json. The issue asks to reverse this, but the reported behaviour was deliberately chosen.",
+  "quotes": [
+   {
+    "evidence_id": 2,
+    "source": "transcript",
+    "commit": "439be1e3e9",
+    "checkpoint": "3ee2f4dbe270",
+    "quote": "**status finalizes too** — reverted to your original \"finalize on detection\" intent now that status isn't a hot path."
+   },
+   {
+    "evidence_id": 1,
+    "source": "commit_message",
+    "commit": "439be1e3e9",
+    "checkpoint": "3ee2f4dbe270",
+    "quote": "entire status (human and --json) and entire doctor run the sweep up\nfront, finalizing any ACTIVE session whose owner process is gone"
+   }
+  ],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "54f6f13311",
+  "files_named": 0,
+  "symbols_named": 7,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/session_finalize.go",
+    55,
+    124,
+    "func:finalizeExitedSessions"
+   ]
+  ],
+  "lines": 70,
+  "lines_linked": 56,
+  "checkpoints": 4
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "439be1e3e9",
+   "checkpoint": "3ee2f4dbe270",
+   "text": "status, doctor: finalize sessions whose agent has exited\n\nExtract endSessionNow — the markSessionEnded + eager-condense sequence\nthe SessionStop hook already runs — and share it with a new\nfinalizeExitedSessions sweep, so the hook and the sweep stay in lockstep.\nmarkSessionEnded gains an optional guard so the sweep re-checks\nOwnerExited on the freshly-loaded state under the session-state lock,\nclosing a TOCTOU race where a turn could revive a session between the\nlist snapshot and the finalize.\n\nentire status (human and --json) and entire doctor run the sweep up\nfront, finalizing any ACTIVE session whose owner process is gone instead\nof leaving it \"active\" until the 1h StuckActiveThreshold. After\nfinalizing, the sweep reloads each session from disk so callers see the\ntrue post-finalize state (condense is fail-open, so StepCount/\nFullyCondensed are never assumed). Both surfaces also label such sessions\n\"exited\" (human output, status --json, doctor's stuck-session reason) as\na fallback when finalization can't run."
+  },
+  {
+   "source": "transcript",
+   "commit": "439be1e3e9",
+   "checkpoint": "3ee2f4dbe270",
+   "text": "[assistant] tive keeps the neutral `Alive/Dead/Unknown`.)\n- **status finalizes too** — reverted to your original \"finalize on detection\" intent now that status isn't a hot path. Both status and doctor share one `finalizeExitedSessions` helper. The finalize **replays the missing `EventSessionStop`** through the existing state machine (→ `PhaseEnded` + condense via `CondenseAndMarkFullyCondensed`), so an exited session ends up identical to a clean stop — rather than the `PhaseIdle` salvage that `CondenseSessionByID` would do.\n\nPlus the Codex-driven corrections from before (typed `unix.SysctlKinfoProc` on Da\n[assistant] ther.go` (Unknown).\n\n**Wiring:**\n- `session.State` gains `Owner` + `OwnerLiveness()`/`OwnerExited()`.\n- Captured each turn start in `InitializeSession` (alongside `captureSessionBranch`).\n- A shared `finalizeExitedSessions` helper replays the missing `EventSessionStop` (→ `PhaseEnded` + condense), called up front by both `entire status` (with a \"Finalized N exited session(s)\" note) and `entire doctor`. `status --json` and the human/doctor paths also carry an `exited` label as a fallback.\n\n**Verification:** `mise run fmt && lint` clean; `mise run test:ci` green (unit + integration + 59 Vogon + \n[assistant] cStat` already returns parent + name + start together), roughly halving the syscalls on the per-turn hot path. Behavior-preserving.\n2. **Altitude — duplicated session-end sequence** (`lifecycle.go`, `session_finalize.go`). `finalizeExitedSessions` replicated the `markSessionEnded` + `CondenseAndMarkFullyCondensed` pair that the `SessionStop` hook already runs. Extracted a shared `endSessionNow(ctx, event, sessionID)` in `lifecycle.go`; both the hook handler and the exited-session sweep now call it, so they can't drift (and the issue-#591 zombie-session rationale now lives in one place).\n\n**Ski\n[assistant] Now `finalizeExitedSessions` uses the guard to re-validate under lock:"
+  },
+  {
+   "source": "prompt",
+   "commit": "439be1e3e9",
+   "checkpoint": "3ee2f4dbe270",
+   "text": "yes, push now and open the PR\n\n---\n\ncan you check the comments on the PR and the finding on the trail, also lint is failing"
+  },
+  {
+   "source": "commit_message",
+   "commit": "4cfc71136d",
+   "checkpoint": "01KZP8XD3JBCSHTEPFFAXGT3E7",
+   "text": "acklog in one stall, and `--json` (the MCP entire_status tool)\nprints nothing until it finishes. sweepCondenseBudget now caps condensing across\nthe whole sweep while every candidate is still marked ENDED, which is what\nactually un-sticks it from `entire status`. A new test pins that split.\n\nReuse and simplification, no behaviour change:\n- Hoist the \"already finalized\" rule to State.IsEnded(); it was spelled out at\n  three sites whose comments claimed they were kept in sync by hand.\n- Collapse codex's parseSessionStart/parseSessionEnd into parseSessionInfoEvent\n  over one sessionInfoRaw, matching geminicli and factoryaidroid, which solved\n  the same \"these differ only in event type\" problem.\n- Drive codex's hooks.json handling from a managedHooks table. Install,\n  uninstall and detection each repeated the same five-event block, so adding\n  SessionEnd was a 12-line edit across three functions with three chances to\n  miss one; the per-event timeout now lives with the event.\n- finalizeExitedSessions: pre-check with slices.ContainsFunc instead of the\n  lazy-init dance, pair SetLogLevelGetter with EnsureInitialized (without it\n  the sweep ignored log_level in settings), drop an unreachable error branch,\n  and fix a doc comment still claiming ACTIVE-only.\n- Fold duplicated tests into tables; derive expected hook counts from the table.\n- State honestly why SessionEndBudgeter is built-in only: an external agent\n  could not enforce a budget itself — the work runs in the entire process."
+  },
+  {
+   "source": "transcript",
+   "commit": "4cfc71136d",
+   "checkpoint": "01KZP8XD3JBCSHTEPFFAXGT3E7",
+   "text": "[assistant] wner` (`strategy/manual_commit_hooks.go:2425`) records a PID + start-time + boot + host fingerprint on **every turn start**.\n- `proclive.Check` reports alive/dead/unknown against that fingerprint.\n- `finalizeExitedSessions` (`session_finalize.go`) sweeps dead-owner sessions and ends them exactly as a clean stop would (PhaseEnded + eager condense). It runs automatically inside `entire status`, `entire status --json`, and `entire doctor`.\n\n## 3. The actual bug\n\n`State.OwnerExited()` at `session/state.go:519` early-returns false unless `Phase.IsActive()` — and `IsActive()` means only `PhaseActive\n[user] f its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>## Simplification review\n\n### 1. `cmd/entire/cli/lifecycle.go:1095–1156`, `session_finalize.go:57` — the session-end budget is threaded as a 5th parameter + zero-time sentinel + standalone helper; a ctx-carried deadline does the same job with three fewer parts\n\n`processStart` → `sessionEndCondenseDeadline(ag)` → `condenseDeadline time.Time` param → `IsZero()` branch. `endSessionNow` has two call sites, and one of them passes `time.Time{}` purely to satisfy the signature.\n[user] n once.</note>\n<result>Tree is clean (temp benchmark removed). Here are the results.\n\n## Finding 1 — `entire status` can now block on N synchronous condensations, unbounded\n\n**File:** `cmd/entire/cli/session_finalize.go:57` (the `time.Time{}` passed as `condenseDeadline`), reached from `cmd/entire/cli/status.go:431` (text) and `cmd/entire/cli/status.go:823` (`--json`, i.e. also the MCP `entire_status` tool).\n\n**Summary:** widening `OwnerExited()` to IDLE multiplies the sweep's candidate set, and each candidate triggers a full, deadline-free `CondenseAndMarkFullyCondensed` inside `entire status"
+  },
+  {
+   "source": "prompt",
+   "commit": "4cfc71136d",
+   "checkpoint": "01KZP8XD3JBCSHTEPFFAXGT3E7",
+   "text": "so what would you add as finding?\n\n---\n\nlet's add all 5"
+  },
+  {
+   "source": "commit_message",
+   "commit": "c9cf2de88c",
+   "checkpoint": "01M0F5P115H7MTSVF28MDPD0WR",
+   "text": "fix(doctor): give abandoned live task records a terminal state\n\nA hard-killed agent fires neither SubagentStop nor SessionEnd, leaving its\nbackground task record LIVE forever: the exited-owner sweep condensed the\nsession but removeCompletedTaskRecords keeps live records, so the session\ncarried pending task content indefinitely. The sweep now completes live\nrecords before endSessionNow — exactly as a clean SessionEnd does — after a\nfresh-load OwnerExited re-check, so the eager condense materializes and\nremoves them.\n\nDefense-in-depth in classifySession: an ENDED, FullyCondensed session with a\nleftover live record (pre-fix state, or a sweep whose condense succeeded but\na capture failed) is healthy — everything worth keeping is materialized and\nthe record can never complete — so doctor never re-flags or --force-loops it.\n\nAlso: sessionHasNewContent's records-only=true behavior gets its missing\ndirect test; pending-list rows for live records render a Running verb\n(FormatSubagentRunningMessage) instead of Completed; SaveTaskStep rejects\nnon-incremental steps explicitly (its non-incremental branch was\nproduction-dead — posttodo is the sole caller); oversized inline comments\ntrimmed to the one-line bar."
+  },
+  {
+   "source": "transcript",
+   "commit": "c9cf2de88c",
+   "checkpoint": "01M0F5P115H7MTSVF28MDPD0WR",
+   "text": "[user] tore.Load(ctx, id)` (both signatures verified at `state.go:559/578`) and re-runs `isSweepableZombie` plus the `IsCondensableEndedSession` shadow-branch gate before condensing. The active-path claim (\"finalizeExitedSessions re-validates OwnerExited under the per-session lock\") is accurate per `session_finalize.go:37-39`, and the snippet's comment that finalize \"refreshes the matched entries in `states` from disk\" is true (`*st = *reloaded` in-place refresh, verified).\n\n3. **`paths.WorktreeRoot(ctx)` — fixed.** Plan line 647 passes ctx; signature verified as `WorktreeRoot(ctx context.Context) (s\n[user] predicate comment's plan-internal \"(Task 3/4)\" reference was cleaned to plan-free wording. Both are the right kind of deviation.\n- **The safety-contract comment is accurate.** I verified each claim: `finalizeExitedSessions` really does re-validate `OwnerExited` under the per-session lock (the guard runs inside `MutateSessionState`'s closure, `lifecycle.go:1446-1450`); `CondenseSessionByID`'s locked closure really re-checks only shadow-branch existence and takes a state-clearing `clearAfter` path when it's gone (`manual_commit_condensation.go:1271-1284`); and `doctor --force` really uses the sa\n[user] .SessionState = session.State` is a true alias (`manual_commit_types.go:26`), so `strategy.ListSessionStates` output flows directly into the `session.State`-typed predicate. No conversion seams.\n- **`finalizeExitedSessions` comment claim verified**: it really does reload matched entries from disk into the shared `states` slice (`session_finalize.go:50-63`), so the ENDED loop's snapshot is post-finalize fresh for the sessions finalize touched.\n- **\"Owner capture happens at TurnStart, not SessionStart\" verified**: both `captureSessionOwner` call sites (`manual_commit_hooks.go:2339, 2385`) are tu"
+  },
+  {
+   "source": "prompt",
+   "commit": "c9cf2de88c",
+   "checkpoint": "01M0F5P115H7MTSVF28MDPD0WR",
+   "text": "<task-notification>\n<task-id>a7d2676f24331be47</task-id>\n<tool-use-id>toolu_01VcQJLcUPcs42nR8XcYvtj2</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-peytonmontei-Documents-entire-devenv-entireio-cli--worktrees-claude-hooks/0153df40-cf3f-429a-bd42-56a3f8dc0a0b/tasks/a7d2676f24331be47.output</output-file>\n<status>completed</status>\n<summary>Agent \"Consolidate capture-branch tests\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>Done. All work is committed and pushed on `feat/subagent-stop-capture`.\n\n## Summary\n\n**Commit:** `a6ae0a4dbf3f87c3811d5dc7a6d2b2b3896d9998` (pushed; parent e71d95c3c as re"
+  },
+  {
+   "source": "commit_message",
+   "commit": "53644bedea",
+   "checkpoint": "01M0AC39GC8DVJM7WM61CGXVKQ",
+   "text": "(the registry holds only the two git-backed backends and Register is test-only),\nand the durable fix for the last one is filed as a follow-up.\n\nDoctor's logging setup only covered the exited-session sweep, which returns\nbefore touching logging whenever nothing needs finalizing — the common case.\nThe condense and discard handlers that run afterwards then logged to\nslog.Default(), i.e. onto the user's terminal interleaved with doctor's report,\nwhich is what the previous commit claimed to prevent. finalizeExitedSessions\ngoes back to owning its own teardown and doctor installs command-scoped logging\nitself, via a helper that keeps the level-getter pairing in one place.\n\nThe exited-owner sweep stamped EndedAt with now, dating a session abandoned days\nago to today: it sorts above real recent work in the resume picker, which\nprefers EndedAt, and `session info` reports it as just-ended. Finalization now\ncarries an explicit policy — the hook and `session stop` stamp now, the sweep\nstamps last-seen — rather than inferring it from a nil event. Note the value has\nto be read before the transition: the SessionStop edge carries\nActionUpdateLastInteraction and overwrites the very field it needs.\n\nThe e2e trust helper hashes the configured timeout while Codex caps SessionEnd\nat SESSION_END_MAX_TIMEOUT_SEC, so if that clamp lands before command_hook_hash,\nanything above the ceiling would hash differently and leave the hook untrusted —\nsilently, since an untrusted hook simply never fires. Mirro"
+  },
+  {
+   "source": "transcript",
+   "commit": "53644bedea",
+   "checkpoint": "01M0AC39GC8DVJM7WM61CGXVKQ",
+   "text": "[assistant] ate-looking consequence. The open call is whether to accept it or relax `AreHooksInstalled` to a core subset.\n\n## 2 & 3. Cursor + Copilot — stale logger after the sweep (`logging/logger.go:155-183`, `session_finalize.go:56`) — same bug, both still valid\n\n`Close()` nils `logBufWriter` and `logFile` but leaves `logger` non-nil, and the handler captured the `*bufio.Writer` by value at `createLogger` (`logger.go:204-210`). After `finalizeExitedSessions` returns and its deferred cleanup runs, `log()` still sees `logger != nil`, so it never falls back to `slog.Default` (`logger.go:267-270`) — it wri\n[assistant] **2/3. Stale logger** — `Close()` now clears `logger`, so a handler can never outlive the buffer it writes into. On its own that would push doctor's post-sweep condense logs back to the terminal, so `finalizeExitedSessions` now returns its cleanup instead of deferring it internally, and `doctor` defers it at command scope. New test asserts a line logged after cleanup reaches `slog.Default()` rather than vanishing.\n\n**4. `IsEnded` parity** — all three `EndedAt` checks in `status.go` now use `IsEnded()`. The divergence was reachable, not just legacy: `attach.go:694` sets `Phase = PhaseEnded` wit\n[assistant] re mostly converts \"killed mid-write\" into \"clean skip, sweep handles it\".\n\n## 3. Doctor's `stopLogging` is a no-op in the common case — valid, and it's mine\n\nCorrect, and it's the fix I made today. `finalizeExitedSessions` early-returns `(0, func(){})` at `session_finalize.go:53` *before* `EnsureInitialized`, so with zero exited sessions — the common case — logging is never initialized and the `CondenseSessionByID`/`discardSession` calls at `doctor.go:187`/`195` still spray structured slog onto the terminal. That's exactly what my new comment at `doctor.go:150-153` claims to prevent.\n\nHis sug"
+  },
+  {
+   "source": "prompt",
+   "commit": "53644bedea",
+   "checkpoint": "01M0AC39GC8DVJM7WM61CGXVKQ",
+   "text": "yes to both\n\n---\n\ncan you check if there are updates on PR and Trail\n\n---\n\ncan you check if there are updates on PR and Trail\n\n---\n\ncan you check if there are updates on PR and Trail\n\n---\n\ncan you check the statge again\n\n---\n\ncan you fix the conflicts\n\n---\n\n<task-notification>\n<task-id>bsp35he4z</task-id>\n<tool-use-id>toolu_01QmUkX8yihRZeinuQjeGhco</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph--herdr-worktrees-cli-soph-codex-session-end/18fbd2ad-aca5-4c39-afb5-cd6a8f91a520/tasks/bsp35he4z.output</output-file>\n<status>completed</status>\n<summary>Background command \"Run full CI suite on merged tree\" completed (exit code 0)</summary>\n</task-notification>\n\n---\n\ncan you look at the PR comment from victor\n\n---\n\nmirror is not a feature yet, we have code for it, but it's not suppo"
+  }
+ ],
+ "cost": {
+  "usd": 0.033583,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 244,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 7768
+ },
+ "trace_id": "80f54f938f6d1f869fb900fadb31737f",
+ "error": null,
+ "trace_spans": 6
+}

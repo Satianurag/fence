@@ -1,0 +1,80 @@
+{
+ "issue": 1205,
+ "title": "Docs and internal names still reference `codex_hooks` (renamed to `hooks` in Codex)",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The issue is that stale `codex_hooks` references remain in docs, comments and error strings. The evidence shows the rename to `hooks = true` was deliberate in the config-writing logic, but nothing shows anyone chose to leave the old name in error messages, comments or docs. Those leftovers were missed in the rename, not decided.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "d0a1e8b0d5",
+  "files_named": 2,
+  "symbols_named": 7,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/codex/hooks.go",
+    365,
+    399,
+    "func:ensureProjectFeatureEnabled"
+   ]
+  ],
+  "lines": 35,
+  "lines_linked": 35,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "deaed24155",
+   "checkpoint": "302b87bb7016",
+   "text": "refactor: split config into per-repo feature flag + user-level trust\n\nTrust in ~/.codex/config.toml unlocks the project layer, so the\ncodex_hooks feature flag can live in .codex/config.toml (per-repo):\n\n  .codex/hooks.json      — Entire lifecycle hooks (per-repo)\n  .codex/config.toml     — features.codex_hooks = true (per-repo)\n  ~/.codex/config.toml   — projects.\"<path>\".trust_level = \"trusted\"\n\nE2E runner creates an isolated CODEX_HOME per test with trust +\nfeature flag pre-seeded via seedCodexHome(), exercising the real\nconfig discovery path instead of --enable CLI bypass."
+  },
+  {
+   "source": "transcript",
+   "commit": "deaed24155",
+   "checkpoint": "302b87bb7016",
+   "text": "[assistant] Now update all references to the renamed types in hooks.go.\n[assistant] pes (`HooksFile`, `MatcherGroup`, `HookEntry`) |\n| `lifecycle.go` | `ParseHookEvent()` mapping: SessionStart→SessionStart, UserPromptSubmit→TurnStart, Stop→TurnEnd, PreToolUse→nil (pass-through) |\n| `hooks.go` | Hook management: `InstallHooks`/`UninstallHooks`/`AreHooksInstalled` via `.codex/hooks.json` |\n\n**Interfaces implemented:**\n- `agent.Agent` (core)\n- `agent.HookSupport` (lifecycle hooks)\n- `agent.HookResponseWriter` (systemMessage output)\n\n**Registration:**\n- Agent name: `\"codex\"`, type: `\"Codex\"`\n- Blank imports in `hooks_cmd.go` and `config.go`\n\n### Tests\n- **21 unit tests** across 3"
+  },
+  {
+   "source": "prompt",
+   "commit": "deaed24155",
+   "checkpoint": "302b87bb7016",
+   "text": "how does auth work for codex with e2e\n\n---\n\n✗ TestSingleSessionManualCommit (22.1s)\n  ✗ codex                22.1s\n      single_session_test.go:56: checkpoint branch did not advance within 15s\n\nRerun failed tests:\n  mise run test:e2e --agent codex TestSingleSessionManualCommit\n\n💥 FAILED (0/1 passed) 💥\n\n\nentire binary:  /Users/soph/Work/entire/devenv/cli_worktree1/entire\nentire version: Entire CLI v0.5.1-dev-eeaa9074b (eeaa9074b)\nGo version: go1.26.1\nOS/Arch: darwin/arm64\n\nartifacts: /Users/soph/Work/entire/devenv/cli_worktree1/e2e/artifacts/2026-03-25T12-24-40\n[test:e2e] ERROR task failed\n\n---\n\nso we should add to `entire enable` if you pick `codex` that we add `features.codex_hooks = true` ? but could we also enable this on a per repo base so we don't enable this for all the users repos?\n"
+  },
+  {
+   "source": "commit_message",
+   "commit": "097f945561",
+   "checkpoint": "36af6447396a",
+   "text": "Adapt to Codex 0.129's renamed hooks feature flag and trust gate\n\nCodex 0.129 surfaces two warnings on every startup against entire's\nexisting hook installation:\n\n  ⚠ \\`[features].codex_hooks\\` is deprecated. Use \\`[features].hooks\\` instead.\n  ⚠ N hooks need review before they can run. Open /hooks to review them.\n\nThe first is a feature-flag rename (codex-rs PR #20522): \\`codex_hooks\\`\nis still accepted as a legacy alias but emits a deprecation warning.\nensureProjectFeatureEnabled now writes the new \\`hooks = true\\` form and\nrewrites any existing \\`codex_hooks = true\\` line on next install so the\nwarning stops firing without touching the user's config by hand. The\nexisting/legacy detection uses an exact line match — \\`hooks = true\\` is\na substring of \\`codex_hooks = true\\`, so a naive Contains() would treat\nthe legacy form as if the new form was already present.\n\nThe second is Codex 0.129's per-user hook trust gate (codex-rs PR\n#20321). Unmanaged hooks defined in .codex/hooks.json don't run until\nthe user has approved the current hash via /hooks once. Pre-trusting on\ninstall would mean replicating Codex's NormalizedHookIdentity →\ncanonical-JSON → SHA256 hash and writing trusted_hash entries to the\nuser's ~/.codex/config.toml — fragile and invasive. Print a one-time\nhint after a Codex install instead, pointing the user at /hooks.\n\nAdds TestInstallHooks_RewritesLegacyFeatureLine pinning the legacy →\ncanonical rewrite. Updates the e2e Codex seed to use the new form."
+  },
+  {
+   "source": "transcript",
+   "commit": "097f945561",
+   "checkpoint": "36af6447396a",
+   "text": "[assistant] the actual bug likely lives\n\nIn v0.5.6's external-agent condense path: `state.CheckpointTranscriptStart` should advance to `result.TotalTranscriptLines` (268) after the first condense (`manual_commit_hooks.go:1375` in current code), and that should flow into the second checkpoint's `writeOpts.CheckpointTranscriptStart` via `manual_commit_condensation.go:243`. Both metadata files showing 0 means either:\n\n1. v0.5.6 didn't advance `state.CheckpointTranscriptStart` for external agents on commit (possible — current code does, but I'd need to check the 0.5.6 tag), or\n2. Something reset state between\n[assistant] en the two commits and reset the offset.\n\n## The path\n\nIn v0.5.6, `carryForwardToNewShadowBranch` resets BOTH `state.CheckpointTranscriptStart` and `state.CompactTranscriptStart` to 0 (`manual_commit_hooks.go:2944-2945`):\n\n```go\n// CheckpointTranscriptStart = 0 is intentional: each checkpoint is self-contained with\n// the full transcript. This trades storage efficiency for simplicity:\n// ...\nstate.StepCount = 1\nstate.CheckpointTranscriptStart = 0\nstate.CompactTranscriptStart = 0\nstate.CheckpointTranscriptSize = 0\nstate.LastCheckpointID = \"\"\n```\n\nIt fires from PostCommit's carry-forward block (\n[assistant] = \"post-tool-use\"` and a `parsePostToolUse(stdin)` returning a new `agent.Event` type (e.g. `agent.ToolUse` with `FilesTouched` field — Claude Code already has this shape; check how it merges).\n2. **`hooks.go`** — install a fourth hook command (`entire hooks codex post-tool-use`) under the `PostToolUse` event in `.codex/hooks.json`. No matcher (or matcher = `apply_patch`) — Bash payloads are useless for file tracking.\n3. **`transcript.go`** — already has `extractFilesFromApplyPatch(string) []string` parsing `*** {Add,Update,Delete} File:`. Reuse it on the hook stdin's `tool_input.command`.\n\nTh"
+  },
+  {
+   "source": "prompt",
+   "commit": "097f945561",
+   "checkpoint": "36af6447396a",
+   "text": "/simplify\n\n---\n\n<task-notification>\n<task-id>a0873d9e14481f399</task-id>\n<tool-use-id>REDACTED</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-soph-Work-entire-devenv-cli/b1ed7d58-eb6b-498c-931f-1f6f207e13c3/tasks/a0873d9e14481f399.output</output-file>\n<status>completed</status>\n<summary>Agent \"Efficiency review\" completed</summary>\n<result>Reviewing `/tmp/codex-posttooluse-diff.patch` for efficiency only.\n\n**Findings:**\n\n1. **`RecordFilesTouched` writes the state file even when nothing changed** (`session_state.go:962-964`). PostToolUse fires after every tool call; repeated `apply_patch` calls touching the same path (e.g., multiple Updates to the same file) hit `mergeFilesTouched` which always returns a freshly-allocated, sorted slice — even if equal to `state.FilesTouched`. The"
+  }
+ ],
+ "cost": {
+  "usd": 0.020889,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 141,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 4852
+ },
+ "trace_id": "560695dac00093870f7199e43763ede7",
+ "error": null,
+ "trace_spans": 6
+}

@@ -1,0 +1,62 @@
+{
+ "issue": 2121,
+ "title": "Semantic search returns 401 for an EU-jurisdiction account; token audience points at eu.entire.io, which has no DNS record",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "no_record",
+  "confidence": 0.93,
+  "rationale": "The issue concerns semantic search auth failing with a 401 for EU-jurisdiction accounts due to a token audience mismatch. The evidence is about the investigate TUI dashboard (tui_sink.go), which is unrelated to semantic search or token audiences, so it gives no record for this behaviour.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "ask",
+ "rulings": [],
+ "located": {
+  "rev": "e65edd125d",
+  "files_named": 0,
+  "symbols_named": 4,
+  "spans": 1,
+  "span_list": [
+   [
+    "cmd/entire/cli/investigate/tui_sink.go",
+    134,
+    138,
+    "func:ready"
+   ]
+  ],
+  "lines": 5,
+  "lines_linked": 5,
+  "checkpoints": 1
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "44cca8a272",
+   "checkpoint": "df0fb75a3046",
+   "text": "feat(investigate): replace per-turn logs with live TUI dashboard\n\nThe investigate loop now drives a Bubble Tea dashboard modelled on\n`entire review`, with one row per agent showing AGENT / STATUS /\nDURATION / TURN / APPROVED. Progress is delivered through a small\n`ProgressSink` interface so the loop itself stays free of any TUI\ndependency: TTY runs get the dashboard, non-TTY runs (CI, redirected\nstdout, agent-host invocations) get the same two-line shape today's\nlog output produces.\n\nThe `--verbose` flag is removed — per-turn agent stdout still lands on\ndisk at `<git-common-dir>/entire-investigations/transcripts/<run-id>/\nturn-N-<agent>.log`, which is the canonical place to inspect raw\noutput post-hoc."
+  },
+  {
+   "source": "transcript",
+   "commit": "44cca8a272",
+   "checkpoint": "df0fb75a3046",
+   "text": "[user] y: a few sentences if straightforward, up to 200-300 words if nuanced\n- Ask after each section whether it looks right so far\n- Cover: architecture, components, data flow, error handling, testing\n- Be ready to go back and clarify if something doesn't make sense\n\n**Design for isolation and clarity:**\n\n- Break the system into smaller units that each have one clear purpose, communicate through well-defined interfaces, and can be understood and tested independently\n- For each unit, you should be able to answer: what does it do, how do you use it, and what does it depend on?\n- Can someone understand\n[assistant] Here's the design — I'll present it in three short sections and pause for your nod after each.\n\n---\n\n## Section 1 — Architecture\n\nA new `cmd/entire/cli/investigate/tui_model.go` + `tui_sink.go`, modelled on `review/tui_model.go` and `review/tui_sink.go`, but driven by investigate's turn-based events instead of review's streaming event channel.\n\nA tiny new interface `ProgressSink` replaces today's `LoopDeps.ProgressOut` (and `VerboseOut`, which goes away):\n\n```go\ntype ProgressSink interface {\n    TurnStarted(agent string, turn int, perAgentTurn, maxPerAgent int)\n    TurnFinished(agent string, t\n[assistant] ted-some (rendered as a faint `idle` so it doesn't look stuck — actually let's just render `queued` when not the active agent and `running` only when active; simpler).\n- `RunFinished` → any row not already failed becomes `done`.\n\n**Header**: same banner pattern as the screenshot. We'll add an investigate-specific top line:\n\n```\nInvestigating: \"<topic>\" (run <id>)\nRound 2/3 · 4 of 9 turns · quorum 2/3 approvals\nAGENT          STATUS       DURATION  TURN   APPROVED\nclaude-code    ⋮ running    19.1s     2/3    ✓ approve\ncodex          ⋮ running    8.4s      1/3    — abstain\ngemini-cli     queued "
+  },
+  {
+   "source": "prompt",
+   "commit": "44cca8a272",
+   "checkpoint": "df0fb75a3046",
+   "text": "for entire investigate can we make the output more like review intead of logs it should be better ui\n[Image #1] should show agent, status, duration, turn, approved/not approved\n\n---\n\nyes\n\n---\n\nyes continue without my help\n\n---\n\ncommit"
+  }
+ ],
+ "cost": {
+  "usd": 0.015807,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 136,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 3594
+ },
+ "trace_id": "39548a6271b63eb75c78d760d2161d9a",
+ "error": null,
+ "trace_spans": 6
+}

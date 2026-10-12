@@ -1,0 +1,86 @@
+{
+ "issue": 2627,
+ "title": "Surface a refused agent relocation variable in entire status",
+ "model": "sonnet",
+ "verdict": {
+  "verdict": "mistake",
+  "confidence": 0.8,
+  "rationale": "The evidence covers the original writing of these functions (transcript-path ownership matching, Codex trust checks) but never mentions how a refused relocation variable should be handled or surfaced. The DEBUG-only logging on fail-open is not something the recorded evidence shows was chosen; it is a gap the issue describes as a follow-up.",
+  "quotes": [],
+  "ruling_id": null
+ },
+ "outcome": "fix",
+ "rulings": [],
+ "located": {
+  "rev": "00a35f8b51",
+  "files_named": 3,
+  "symbols_named": 11,
+  "spans": 3,
+  "span_list": [
+   [
+    "cmd/entire/cli/agent/registry.go",
+    105,
+    131,
+    "func:AgentForTranscriptPath"
+   ],
+   [
+    "cmd/entire/cli/agent/codex/hook_root.go",
+    245,
+    266,
+    "func:isUserHookRoot"
+   ],
+   [
+    "cmd/entire/cli/agent/codex/trust.go",
+    91,
+    100,
+    "func:codexConfigPath"
+   ]
+  ],
+  "lines": 59,
+  "lines_linked": 37,
+  "checkpoints": 2
+ },
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "c62b2ff5bd",
+   "checkpoint": "e51b741d6a56",
+   "text": "Fix Cursor session mis-identified as Claude Code\n\nWhen Cursor IDE forwards a single user prompt to both .cursor/hooks.json\nand .claude/settings.json, two `entire` hook processes race to claim the\nsession and the loser's wrong agent_type can win the last write.\n\nThree layered defenses:\n- SessionStart hint: first agent to fire claims the session ID\n  (`<sessionID>.agent` written with O_EXCL).\n- Transcript-path override: a transcript inside an agent's session dir\n  is authoritative — overrides both hint and the firing hook.\n- Per-session file lock: serializes concurrent InitializeSession calls\n  so the runner-up takes the cheap update path (`correctSessionAgentType`)\n  instead of also creating-from-scratch. Lock files live under\n  `<git-common-dir>/entire-locks/` to keep `entire-sessions/` clean."
+  },
+  {
+   "source": "transcript",
+   "commit": "c62b2ff5bd",
+   "checkpoint": "e51b741d6a56",
+   "text": "[assistant] Now let me write a test for `AgentForTranscriptPath`:\n[assistant] Now let me add a test for `AgentForTranscriptPath`:\n[assistant] ire SessionStart claims the session.\n- Wired in at `cmd/entire/cli/lifecycle.go:124-128` so SessionStart writes the hint right after the model hint.\n\n**Option 3 — Transcript-path override:**\n- `agent.AgentForTranscriptPath` in `cmd/entire/cli/agent/registry.go` — iterates registered agents and picks the one whose `GetSessionDir(repo)` directory-prefixes the transcript path.\n- New helpers `resolveSessionAgentType` and `correctSessionAgentType` in `cmd/entire/cli/strategy/manual_commit_hooks.go`. Priority on TurnStart: **transcript path > SessionStart hint > firing-hook agent**.\n- `InitializeSes"
+  },
+  {
+   "source": "prompt",
+   "commit": "c62b2ff5bd",
+   "checkpoint": "e51b741d6a56",
+   "text": "Check the Entire setup in /Users/thomi/Projects/entire-helpers - I started a session with Cursor Agent, but entire status shows Claude Code (composer-2) · 90e3cd9e-f701-4b7e-b846-820788ee5e6a\n\n---\n\nImplement option 1 and 3\n\n---\n\nThis works as I see now:\nCursor (composer-2) · 0c915eab-b5b0-4172-b9e3-d363a5eb09c5\nBut when I had started the session, for a few seconds, I still saw:\nClaude Code (composer-2) · 0c915eab-b5b0-4172-b9e3-d363a5eb09c5\nWhy is that?\n\n---\n\nYes\n\n---\n\n<<autonomous-loop-dynamic>>"
+  },
+  {
+   "source": "commit_message",
+   "commit": "7f02cd58f4",
+   "checkpoint": "53b01ed8f2c6",
+   "text": "Surface untrusted Codex hooks in the SessionStart welcome\n\nWhen entire ships a new hook (the recent PostToolUse addition is the\nfirst instance, more will follow), users who trusted earlier versions\nof our hooks won't have a \\`trusted_hash\\` entry for the new one in\ntheir ~/.codex/config.toml. Codex's own startup warning catches this,\nbut it's generic — the user has to read the /hooks UI to figure out\nwhich hook came from where.\n\nReaching the SessionStart hook handler proves SessionStart is itself\ntrusted, so it's the right place to add a contextual nudge: if any\nother event we declared in .codex/hooks.json lacks a state entry under\nthe same hooks-file path, append a one-liner naming the missing events\nto the welcome message.\n\nDetection is structural — we read the user's config.toml and look for\n\\`[hooks.state.\"<hooks.json>:<event>:<group>:<handler>\"]\\` headers, no\nhash recomputation. That misses the \"command changed, hash mismatched\"\ncase (status = Modified), but Codex's own warning still surfaces it,\nso we don't need to. The check stays cheap and free of the brittle\nhash-replication coupling we declined for production pre-trust.\n\nCodex-only: other agents don't have a per-user trust gate."
+  },
+  {
+   "source": "transcript",
+   "commit": "7f02cd58f4",
+   "checkpoint": "53b01ed8f2c6",
+   "text": "[assistant] f we want to do something now, **(b)** is the only concrete option — and it's a small command. The fragility is acceptable because:\n1. The hash logic already exists and is tested in `e2e/agents/codex_trust.go`. We can move it out of the e2e package, share it.\n2. Failure mode is explicit — user runs the command, sees a result, sees if `/hooks` is still complaining.\n3. Codex hash drift breaks our own e2e first, so we'd notice before users do.\n\nWant me to add `entire codex trust-hooks` (or whatever name reads best — `entire codex approve-hooks`, `entire trust-codex-hooks`)? It'd be a small one-sh\n[assistant] ns the event labels declared in hooksJSONPath\n// that lack a `[hooks.state.\"<path>:<event>:0:0\"]` entry in the user's\n// codex config. Returns nil when all hooks are accounted for or when\n// the codex config is unreadable (worst case: Codex's own startup\n// warning still surfaces the issue).\nfunc codexHookTrustGaps(hooksJSONPath, codexConfigPath string) []string { … }\n```\n\nRead both files, parse the JSON for events, parse the TOML keys, compute the set difference. ~50 lines.\n\nWant me to wire that up? `entire enable` first, then we can plug it into `entire doctor` in the same PR or a follow-up.\n[assistant] What lands in commit `7f02cd58f`:\n\n**`HookTrustGaps(repoRoot)`** in `agent/codex/trust.go` — reads `<repo>/.codex/hooks.json` and the user's `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`), returns the snake_case event labels declared in hooks.json that don't have a `[hooks.state.\"<hooks.json>:<event>:<group>:<handler>\"]` header. Pure structural check, no hash math.\n\n**Wired into `handleLifecycleSessionStart`** — only for Codex, and only after the welcome message is composed. Reaching this handler at all proves SessionStart is trusted, so any gap we find is a *newer* hook the user hasn't"
+  }
+ ],
+ "cost": {
+  "usd": 0.016155,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 144,
+  "cache_read_tokens": 666,
+  "cache_write_tokens": 3661
+ },
+ "trace_id": "2379381ac3b30e0580ee35d69b111f84",
+ "error": null,
+ "trace_spans": 6
+}
