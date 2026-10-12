@@ -102,8 +102,8 @@ In Neatlogs, project "fence":
 Say: "Every run is one trace: each step, each model call with its tokens and cost. When a worker's change fails
 Fence's verification, this detection fires. It caught this run."
 
-Do not show the "Fence: asked a human" detection unless you have checked it since: when this script was written it
-fired on every successful step.
+You can also show "Fence: asked a human" (`749b960e-fa61-402e-a1b5-cf78c067da84`): it fires on the ask step of trace
+`21fe34a6767accb2cb6999b3137ac62d` (#2263) and on nothing else in that trace.
 
 Say about cost, if asked: the dollar figures in the README are Claude Code's own; Neatlogs' computed cost differs.
 
