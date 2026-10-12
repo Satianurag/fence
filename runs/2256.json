@@ -5,11 +5,13 @@
  "verdict": {
   "verdict": "mistake",
   "confidence": 0.8,
-  "rationale": "The evidence shows the trailer logic was moved and tightened with the regex, but nothing addresses an indented checkpoint-shaped final paragraph or the writer's TrimSpace looseness. The writer/reader grammar divergence appears to be an unconsidered edge case, not a chosen behavior.",
+  "rationale": "The evidence covers moving and tightening the trailer heuristic, but nothing shows anyone chose for the writer to treat indented trailer-shaped lines as a trailer block. The writer's looser TrimSpace grammar appears to be an unconsidered divergence from the reader and git, not a deliberate choice.",
   "quotes": []
  },
  "located": {
   "rev": "d5f6deffa4",
+  "located_by": "named",
+  "search_error": null,
   "files_named": 3,
   "symbols_named": 15,
   "spans": 8,
@@ -202,14 +204,14 @@
   }
  ],
  "cost": {
-  "usd": 0.004724,
+  "usd": 0.004754,
   "llm_calls": 1,
   "input_tokens": 2,
-  "output_tokens": 135,
+  "output_tokens": 138,
   "cache_read_tokens": 11216,
   "cache_write_tokens": 562
  },
- "trace_id": "12650825d542ae770b75a23c260348f1",
+ "trace_id": "6cc1967d5b1ce37bbcd232495ae1e549",
  "error": null,
  "trace_spans": 6
 }

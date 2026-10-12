@@ -4,29 +4,190 @@
  "model": "sonnet",
  "verdict": {
   "verdict": "no_record",
-  "confidence": 1.0,
-  "rationale": "The issue names no file or symbol the resolver could locate, so there are no lines to trace to a checkpoint.",
+  "confidence": 0.85,
+  "rationale": "The issue concerns the shadow branch being deleted after post-commit condensation, which causes later prepare-commit-msg calls to skip the trailer. The evidence covers unrelated work: explain branch filtering, trailer blank-line formatting, Gemini transcript parsing, CheckpointID typing and multi-session rewind. None of it discusses the shadow branch lifecycle or the decision to skip trailers on later commits.",
   "quotes": []
  },
  "located": {
   "rev": "61a9c084b4",
+  "located_by": "search",
+  "search_error": null,
   "files_named": 0,
   "symbols_named": 3,
-  "spans": 0,
-  "span_list": [],
-  "lines": 0,
-  "lines_linked": 0,
-  "checkpoints": 0
+  "spans": 4,
+  "span_list": [
+   [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go",
+    1699,
+    1754,
+    "search:addCheckpointTrailer"
+   ],
+   [
+    "cmd/entire/cli/strategy/common.go",
+    661,
+    674,
+    "search:ReadSessionPromptFromTree"
+   ],
+   [
+    "e2e/testutil/repo.go",
+    632,
+    636,
+    "search:GetCheckpointTrailer"
+   ],
+   [
+    "cmd/entire/cli/explain.go",
+    473,
+    545,
+    "search:getAssociatedCommits"
+   ]
+  ],
+  "lines": 148,
+  "lines_linked": 125,
+  "checkpoints": 11
  },
- "evidence": [],
+ "evidence": [
+  {
+   "source": "commit_message",
+   "commit": "6ea1944d1e",
+   "checkpoint": "48415fae24d7",
+   "text": "fix: --search-all uses full DAG walk to find merged branch commits\n\nWhen --search-all is true, getAssociatedCommits now uses repo.Log()\n(full DAG walk) instead of walkFirstParentCommits. This preserves the\n\"escape hatch\" semantics: first-parent traversal is the fast default,\nbut --search-all searches all reachable commits including those on\nsecond parents of merge commits (e.g. feature branch commits merged\ninto main via true merge).\n\nAdd TestGetAssociatedCommits_SearchAllFindsMergedBranchCommits to\nverify this behavior."
+  },
+  {
+   "source": "transcript",
+   "commit": "6ea1944d1e",
+   "checkpoint": "48415fae24d7",
+   "text": "[user] heckpoints are found, silently dropping them.\n\ngo-git v5's `LogOptions` has no `FirstParent` option, so we need manual first-parent traversal.\n\n## Changes\n\n### 1. Extract first-parent walk helper in `explain.go`\n\nCreate a `walkFirstParentCommits` helper that walks the first-parent chain from a starting hash, calling a visitor function for each commit. Stops at `commitScanLimit`.\n\n```go\nfunc walkFirstParentCommits(repo *git.Repository, from plumbing.Hash, limit int, fn func(*object.Commit) error) error\n```\n\nThis replaces both `repo.Log()` call sites that walk the user's branch.\n\n### 2. Simplify\n[assistant] Now simplify `getAssociatedCommits`:\n[assistant] Here's a summary of the changes:\n\n## Changes Made\n\n### `cmd/entire/cli/explain.go`\n\n1. **Added `walkFirstParentCommits` helper** (line ~754) - Walks only the first-parent chain from a starting commit, avoiding the full DAG traversal that `repo.Log()` does. This is the key fix: merge commits' second parents (main branch history) are never followed.\n\n2. **Simplified `getBranchCheckpoints`** - Replaced `repo.Log()` + `reachableFromMain` map + `consecutiveMainLimit` tracking with a single `walkFirstParentCommits` call. Removed the default branch resolution block (mainBranchHash, GetDefaultBranchNa\n[user] arlier portion of the conversation.\n\nAnalysis:\nLet me chronologically analyze the conversation:\n\n1. User provided a detailed plan to fix `entire explain` branch filtering with merge commits\n2. I read explain.go and explain_test.go to understand the codebase\n3. Created task list with 7 tasks\n4. Implemented walkFirstParentCommits helper\n5. Simplified getBranchCheckpoints - removed reachableFromMain, consecutiveMainLimit, mainBranchHash resolution\n6. Simplified getAssociatedCommits - same removals\n7. Updated isShadowBranchReachable to use first-parent walk\n8. Removed consecutiveMainLimit constant"
+  },
+  {
+   "source": "prompt",
+   "commit": "6ea1944d1e",
+   "checkpoint": "48415fae24d7",
+   "text": "Implement the following plan:\n\n# Fix `entire explain` branch filtering with merge commits\n\n## Context\n\n`entire explain` branch filtering breaks when a feature branch has merge commits from main. The root cause: `repo.Log()` with `git.LogOrderCommitterTime` traverses ALL parents of merge commits (full DAG walk). After merging main into a feature branch, the walker enters main's full history. The `consecutiveMainLimit` (100) fires before older feature branch checkpoints are found, silently dropping them.\n\ngo-git v5's `LogOptions` has no `FirstParent` option, so we need manual first-parent traversal.\n\n## Changes\n\n### 1. Extract first-parent walk helper in `explain.go`\n\nCreate a `walkFirstParentCommits` helper that walks the first-parent chain from a starting hash, calling a visitor function f"
+  },
+  {
+   "source": "commit_message",
+   "commit": "e369cc5bbd",
+   "checkpoint": "3820a5a1b66e",
+   "text": "fix: trailer not separated by blank line for single-line commits\n\naddCheckpointTrailer falsely detected conventional commit subjects\nlike \"docs: Add foo\" as having existing trailers (because they contain\n\": \"), appending the Entire-Checkpoint trailer without a blank line.\nGit requires trailers in a separate paragraph. Now scans upward past\nthe trailer-like block to verify a blank line exists above it."
+  },
+  {
+   "source": "transcript",
+   "commit": "e369cc5bbd",
+   "checkpoint": "3820a5a1b66e",
+   "text": "[user] t.go`\n\nUpdate existing test data to include at least some tests with the real array format to prevent regression.\n\n### Step 4: Add a strategy-level regression test\n\n**File**: `cmd/entire/cli/strategy/manual_commit_hooks.go` tests or new test\n\nAdd a test that reproduces the original bug: `sessionHasNewContent` with a Gemini transcript containing array-content user messages should return `true`, not `false`.\n\n## Verification\n\n```bash\nmise run fmt && mise run lint && mise run test:ci\n```\n\nSpecifically verify:\n- `go test ./cmd/entire/cli/agent/geminicli/... -run TestParseTranscript` passes with ne\n[assistant] I see the issue. The `addCheckpointTrailer` function checks if the last non-empty, non-comment line looks like a trailer (contains \": \"). For a commit message like:\n\n```\ndocs: Add red.md with information about the color red\n```\n\nThe last non-empty line is `docs: Add red.md with information about the color red` which DOES contain \": \" (after \"red\"). So the function thinks there are already trailers and appends directly without a blank line!\n\nThis is a false positive in the trailer detection. The subject line happens to contain \": \" which makes it look like a trailer. The function needs a better\n[assistant] Found the bug. The `addCheckpointTrailer` function at line 1116 checks if a line contains `\": \"` to detect existing trailers. But a commit subject like `docs: Add red.md with information about the color red` contains `\": \"` after \"red\", so it falsely thinks trailers already exist and skips the blank line.\n\nLet me see which code path the agent commit uses."
+  },
+  {
+   "source": "prompt",
+   "commit": "e369cc5bbd",
+   "checkpoint": "3820a5a1b66e",
+   "text": "Implement the following plan:\n\n# Fix Gemini Transcript Parsing for Checkpointing\n\n## Context\n\nGemini checkpointing is broken because `GeminiMessage.Content` is defined as `string`, but actual Gemini CLI transcripts use different formats for the `content` field:\n- **User messages**: `\"content\": [{\"text\": \"the prompt\"}]` (array of objects)\n- **Gemini messages**: `\"content\": \"response text\"` (string)\n\n`json.Unmarshal` fails when encountering an array where a string is expected, causing `ParseTranscript()` to return an error. This cascades through the entire checkpoint pipeline:\n\n1. `countTranscriptItems()` returns 0 for Gemini transcripts\n2. `prepare-commit-msg` hook sees \"no content to link\" and skips adding the `Entire-Checkpoint` trailer\n3. `post-commit` hook sees no trailer and skips cond"
+  },
+  {
+   "source": "commit_message",
+   "commit": "4a318ce789",
+   "checkpoint": "7bbf25eecc21",
+   "text": "feat(explain): show associated commits in checkpoint detail view\n\nENT-212: Add getAssociatedCommits to find git commits that reference a\ncheckpoint ID via Entire-Checkpoint trailer. Display commits in checkpoint\ndetail view with SHA, date, and message. Respects --search-all flag and\nbranch filtering (only shows commits unique to current branch).\n\nChanges:\n- Add associatedCommit type to hold commit metadata\n- Add getAssociatedCommits function for branch-scoped commit traversal\n- Update formatCheckpointOutput to display commits section\n- Replace findCommitMessageForCheckpoint with getAssociatedCommits\n- Add FormatCheckpoint helper to trailers package\n- Update all tests for new function signature"
+  },
+  {
+   "source": "transcript",
+   "commit": "4a318ce789",
+   "checkpoint": "7bbf25eecc21",
+   "text": "[assistant] th matching `Entire-Checkpoint` trailer\n\n**Key changes needed:**\n\n| Area | Change |\n|------|--------|\n| `checkpoint/committed.go` | Add author to `CommittedInfo` struct, populate from git commit |\n| `explain.go` | Modify `--commit` to do reverse lookup → checkpoint detail |\n| `explain.go` | Change `--session` from exclusive flag to filter |\n| `explain.go` | Add associated commits section to checkpoint detail view |\n| List formatting | Show author column/field |\n\n**Questions:**\n\n1. For the list view author display - full name, or abbreviated (e.g., initials, first name only)? Space is limited i\n[user] ntation - PENDING\n   - Task 7: Final integration testing and cleanup - PENDING\n\n6. **Key Technical Details**:\n   - Working in `/Users/alex/workspace/cli/.worktrees/2`\n   - Main files: `cmd/entire/cli/explain.go`, `cmd/entire/cli/explain_test.go`, `cmd/entire/cli/integration_test/explain_test.go`\n   - Using go-git for git operations\n   - `trailers.ParseCheckpoint()` extracts `Entire-Checkpoint` trailer\n   - `formatBranchCheckpoints()` now has sessionFilter parameter\n   - `runExplainBranchWithFilter()` new function for filtered list view\n\n7. **Commits Made**:\n   - ec6e0e1: feat(explain): add --s"
+  },
+  {
+   "source": "prompt",
+   "commit": "4a318ce789",
+   "checkpoint": "7bbf25eecc21",
+   "text": "have a look at linear https://linear.app/entirehq/issue/ENT-212/entire-explain-improvements - let's discuss\n\n---\n\n1. there should be a user associated with the _checkpoint metadata_ commit into `entire/sessions` - it's not in the metadata itself I don't believe. Is this easily available to us when we look up the checkpoints? This should also be the same user creating the code-side git commit...\n2. yes, entire explain --commit <commit-sha> should return the checkpoint that commit is related to - or if there is no trailer it should say \"No associated \nEntire checkpoint\"\n3. not sure what the current behaviour is, but yes I would like it to be a filter.\n\nI've also updated the issue with one more requirement:\n4. the entire explain -c detail view should show the git commits associated with that "
+  },
+  {
+   "source": "commit_message",
+   "commit": "a26619ed8b",
+   "checkpoint": "dcb4d86ac3a4",
+   "text": "some simplification"
+  },
+  {
+   "source": "transcript",
+   "commit": "a26619ed8b",
+   "checkpoint": "dcb4d86ac3a4",
+   "text": "[assistant]  inconsistent maxLen (50 vs 60) instead of using existing `TruncateDescription()` | ~15 |\n| **Duplicate prompt extraction** | `getFirstPromptPreview()` and `readSessionPrompt()` duplicate logic from `ReadSessionPromptFromTree()` | ~50 |\n\n### Medium: YAGNI Violations\n\n1. **`getSessionIDFromCheckpoint()`** (`manual_commit_rewind.go:775-817`) - duplicates logic available through `ReadCheckpointMetadata()`\n\n2. **`statusToText()` unused cases** - `statusUnchanged` and `statusCheckpointNewer` text values are never shown to users\n\n3. **`branchCheckpointResult.mergeCommitsOnly`** (`resume.go:177`) - a\n[assistant] The user wants me to fix the critical duplicate code issues identified by the simplifier:\n\n1. **Duplicate prompt confirmation functions** - `promptOverwriteNewerLog` in resume.go vs `promptOverwriteNewerLogs` in manual_commit_rewind.go\n2. **Duplicate prompt truncation logic** - 3 locations with inconsistent maxLen instead of using `TruncateDescription()`\n3. **Duplicate prompt extraction** - `getFirstPromptPreview()` and `readSessionPrompt()` duplicate logic from `ReadSessionPromptFromTree()`\n\nLet me start by reading the relevant files to understand the current state and then make the fixes.\n[assistant] All critical duplicates fixed. Here's the summary:\n\n## Changes Made\n\n### 1. Consolidated Prompt Extraction (~50 LOC saved)\n- Created `ExtractFirstPrompt()` in `common.go` that uses `TruncateDescription()`\n- Updated `ReadSessionPromptFromTree()` to use `ExtractFirstPrompt()`\n- Simplified `getFirstPromptPreview()` to delegate to `ExtractFirstPrompt()`\n- Simplified `readSessionPrompt()` to use `ExtractFirstPrompt()`\n\n### 2. Consolidated Truncation (~15 LOC saved)\n- All 3 locations now use `TruncateDescription()` with consistent `MaxDescriptionLength` (60)\n- Removed inline `if len > maxLen { s[:ma"
+  },
+  {
+   "source": "prompt",
+   "commit": "a26619ed8b",
+   "checkpoint": "dcb4d86ac3a4",
+   "text": "can you fix:   1. Critical: Duplicate Code (~55 LOC)\n\n  Three timestamp functions are fully duplicated between resume.go and manual_commit_rewind.go:\n  - getLastTimestampFromFile()\n  - getLastTimestampFromBytes()\n  - parseTimestampFromJSONL()\n\n---\n\nThis session is being continued from a previous conversation that ran out of context. The conversation is summarized below:\nAnalysis:\nLet me chronologically analyze the conversation:\n\n1. **Initial Context (from prior summary)**: The conversation started with fixing a multi-session rewind bug and implementing a timestamp safety check for the resume command.\n\n2. **Timestamp Safety Check Implementation**: The user asked for a safety check that compares timestamps between local session logs and checkpoint logs, prompting for confirmation before over"
+  },
+  {
+   "source": "commit_message",
+   "commit": "a12a83da6a",
+   "checkpoint": "e12c3e2b3f2a",
+   "text": "feat(explain): show git commit message in verbose mode\n\nAdd commitMessage parameter to formatCheckpointOutput function.\nIn verbose/full mode, if a commit message is found for the checkpoint,\ndisplay it in a 'Commit:' section.\n\nThe commit message is looked up by searching git history for commits\nwith an Entire-Checkpoint trailer matching the checkpoint ID.\n\nTests:\n- TestFormatCheckpointOutput_Verbose: verifies commit message is shown\n- TestFormatCheckpointOutput_Verbose_NoCommitMessage: verifies no section\n  when commit message is empty\n- TestFormatCheckpointOutput_Full: verifies commit message in full mode"
+  },
+  {
+   "source": "transcript",
+   "commit": "a12a83da6a",
+   "checkpoint": "e12c3e2b3f2a",
+   "text": "[user] eted - test is failing as expected)\n\nCurrent state: Task 7's test is failing correctly (TDD red phase). Need to proceed to Task 8 to implement the default output format.\n\nKey files:\n- `cmd/entire/cli/explain.go` - main implementation\n- `cmd/entire/cli/explain_test.go` - tests\n- checkpoint package for ReadCommittedResult types\n\nImportant code patterns:\n- formatCheckpointOutput(result, checkpointID, verbose, full) signature\n- checkpoint.ReadCommittedResult with Metadata containing TokenUsage\n- Tiered output: default (summary), verbose (+ prompts/files), full (+ transcript)\n\nSummary:\n1. Primary R\n[assistant] Let me read the current state of the explain.go file to see the stub implementation."
+  },
+  {
+   "source": "prompt",
+   "commit": "a12a83da6a",
+   "checkpoint": "e12c3e2b3f2a",
+   "text": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nAnalysis:\nLet me chronologically analyze the conversation:\n\n1. **Initial Request (Brainstorming)**: User wanted to brainstorm Linear ENT-53 (Clean up explain output) and break it into smaller PR-able chunks. Also wanted to explore a TUI-style interface for the explain feature.\n\n2. **Brainstorming Discussion**:\n   - Discussed TUI for `entire explain` - user chose interactive navigation and visual hierarchy\n   - TUI as default with text fallback (like git)\n   - Branch summary first, then checkpoints\n   - Accordion-style for checkpoint details\n   - Sections: Summary, Learnings & Friction, Files, Token Usage, Transcript\n\n3. **Domain Model Disc"
+  },
+  {
+   "source": "commit_message",
+   "commit": "3a1dfff463",
+   "checkpoint": "fd86c6e4bdb2",
+   "text": "Check ctx.Err() in go-git iteration loops\n\nAdd context.Context parameter to walkFirstParentCommits,\ncomputeReachableFromMain, getAssociatedCommits, isShadowBranchReachable,\nIsAncestorOf, getAllChangedFilesBetweenTrees, and\nCalculateAttributionWithAccumulated. Add ctx.Err() checks at the top of\nevery ForEach callback and at the top of the walkFirstParentCommits loop\nbody, allowing long commit walks and tree iterations to be interrupted\nby ^C."
+  },
+  {
+   "source": "commit_message",
+   "commit": "e8bf0c9547",
+   "checkpoint": "e3e035743cb8",
+   "text": "multi session"
+  },
+  {
+   "source": "transcript",
+   "commit": "e8bf0c9547",
+   "checkpoint": "e3e035743cb8",
+   "text": "[assistant] e/cli/hooks_claudecode_handlers.go` - Removed skip logic, updated warning message\n- `cmd/entire/cli/strategy/strategy.go` - Added SessionID and SessionPrompt to RewindPoint\n- `cmd/entire/cli/strategy/common.go` - Added `ReadSessionPromptFromTree` helper\n- `cmd/entire/cli/strategy/manual_commit_rewind.go` - Populate session info in rewind points\n- `cmd/entire/cli/strategy/auto_commit.go` - Populate session info in rewind points\n- `cmd/entire/cli/rewind.go` - Display session prompt when multiple sessions exist\n- `cmd/entire/cli/integration_test/concurrent_session_warning_test.go` - Updated test \n[user] )` function and all calls to it\n   - Updated warning message from \"will not be captured\" to \"will be interleaved\"\n   - Added `SessionID` and `SessionPrompt` fields to `RewindPoint` struct\n   - Added `ReadSessionPromptFromTree()` helper function to `common.go`\n   - Updated `GetRewindPoints()` in both manual_commit and auto_commit strategies\n   - Updated rewind display to show session prompt when multiple sessions exist\n   - Updated JSON output for `--list` to include new fields\n   - Updated integration tests\n\n6. **User feedback on warning message**: User asked to change the message to be more n\n[assistant]  which is a `*SessionState`. I need to read the other session's prompt. Let me check what fields `SessionState` has and how we can read the prompt from the other session's metadata.\n\nLooking at the code, I need to:\n1. Get the other session's prompt from the shadow branch metadata\n2. Include it in the warning message\n\nThe prompt would be stored at `.entire/metadata/<session-id>/prompt.txt` on the shadow branch. I already have a helper function `ReadSessionPromptFromTree()` in common.go that can read this.\n\nLet me look at how to access the shadow branch and read the prompt for the other session."
+  },
+  {
+   "source": "prompt",
+   "commit": "e8bf0c9547",
+   "checkpoint": "e3e035743cb8",
+   "text": "Can you tell me again how the logic works that flags if you have an active session in claude already and blocks the prompt once.\n\n---\n\nWhat would happen if we keep the hooks going if he continues after the warning was shown?\n\n---\n\nCan you check the skip claude hook part is actually working? don't fix anything, but just validate it works because I got feed back that just continuing a session with a warning kept capturing state\n\n---\n\nWhat if we just include both sessions with a checkpoint?\n\n---\n\nlet's try implementing this, let \"rewind\" show the initial prompt to distinguish between \"Session A\" and \"Session B\"\n\n---\n\ncan we change \n\"Both sessions will capture checkpoints, but they will be interleaved. Use 'entire rewind' to see checkpoints from both sessions\"\n\nTo something more that just ment"
+  },
+  {
+   "source": "commit_message",
+   "commit": "38ab6aa176",
+   "checkpoint": "361bace85e2c",
+   "text": "use CheckpointID type in internal functions\n\n- auto_commit: commitCodeToActive and commitTaskCodeToActive now take id.CheckpointID\n- manual_commit_hooks: addCheckpointTrailer functions now take id.CheckpointID\n- testenv: ShardedCheckpointPath delegates to id.CheckpointID.Path()\n- tests: use typed constant for testTrailerCheckpointID"
+  },
+  {
+   "source": "transcript",
+   "commit": "38ab6aa176",
+   "checkpoint": "361bace85e2c",
+   "text": "[assistant] Found some interesting hits. Let me look at the ones that might still be using strings:\n\n1. `manual_commit_hooks.go:636` - `addCheckpointTrailer(message, checkpointID string)`\n2. `auto_commit.go:200` - `commitCodeToActive(..., checkpointID string)`\n3. `auto_commit.go:584` - `commitTaskCodeToActive(..., checkpointID string)`\n4. `integration_test/testenv.go:408` - `GitCommitWithCheckpointID(message, checkpointID string)`\n5. `integration_test/testenv.go:1127` - `ShardedCheckpointPath(checkpointID string)`\n\nLet me examine these more closely to see if they should be using the CheckpointID type.\n[assistant] hanged to accept `id.CheckpointID` directly\n\n2. **`auto_commit.go:584`** - `commitTaskCodeToActive(..., checkpointID string)`\n   - Similar pattern - probably called with `.String()` conversion\n\n3. **`manual_commit_hooks.go:636`** - `addCheckpointTrailer(message, checkpointID string)`\n   - Called from line 324 with `checkpointID.String()` \n   - This is an internal helper that just needs the string value to embed in the commit message, so taking a string is actually reasonable here\n\n4. **`integration_test/testenv.go:408`** - `GitCommitWithCheckpointID(message, checkpointID string)`\n   - Test hel\n[assistant] r Priority)\nThese are internal helper functions where taking `string` is reasonable since they just embed the ID in text:\n\n| Location | Function | Assessment |\n|----------|----------|------------|\n| `manual_commit_hooks.go:636` | `addCheckpointTrailer(message, checkpointID string)` | ✅ OK - just concatenates into commit message |\n| `auto_commit.go:200` | `commitCodeToActive(..., checkpointID string)` | ⚠️ Could use type |\n| `auto_commit.go:584` | `commitTaskCodeToActive(..., checkpointID string)` | ⚠️ Could use type |\n\n### Test Helpers (Lower Priority)\n| Location | Function | Assessment |\n|---"
+  },
+  {
+   "source": "prompt",
+   "commit": "38ab6aa176",
+   "checkpoint": "361bace85e2c",
+   "text": "let's review this branch/PR - https://github.com/entireio/cli/pull/88\n\n---\n\ncan we sweep for any remaining checkpoint usages that don't use the new type?\n\n---\n\n<bash-input>code .</bash-input>\n\n---\n\n<bash-stdout></bash-stdout><bash-stderr></bash-stderr>\n\n---\n\ncan you show me the auto_commit code?\n\n---\n\nlink to open the file in vscode?\n\n---\n\n(with line number? 😂)\n\n---\n\nyeah let's add the type safety\n\n---\n\nlet's do the one here as well, we always want to be passed a valid checkpointId"
+  }
+ ],
  "cost": {
-  "usd": 0,
-  "llm_calls": 0,
-  "input_tokens": 0,
-  "output_tokens": 0,
+  "usd": 0.049764,
+  "llm_calls": 1,
+  "input_tokens": 2,
+  "output_tokens": 174,
   "cache_read_tokens": 0,
-  "cache_write_tokens": 0
+  "cache_write_tokens": 12005
  },
- "trace_id": "c69b437247d6a5a450d1261d60936dc7",
- "error": null
+ "trace_id": "6e9f413696a22d9e5fbd5fbe25134979",
+ "error": null,
+ "trace_spans": 6
 }
