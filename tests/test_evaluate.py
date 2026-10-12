@@ -48,6 +48,7 @@ def test_run_eval_writes_table_limits_and_total_cost(tmp_path):
     assert sm["verdict_by_state_reason"] == {"completed": {"mistake": 1}, "duplicate": {"no_record": 1}, "not_planned": {"mistake": 1}}
     assert (sm["agreement"]["compared"], sm["agreement"]["agree"], sm["total_cost_usd"]) == (2, 1, 0.03)
     assert any("feature work" in l for l in report["limits"]) and any("very small" in l for l in report["limits"])
+    assert report["limits"][0].startswith('A classifier that always answered "mistake" would agree on 1 of 2')
     evaluate.run_eval(ISSUES, [1, 2, 5], one, tmp_path, workers=1)  # resume: nothing is run again
     assert len(calls) == 3
 

@@ -1,6 +1,7 @@
 {
  "what": "Fence verdict (investigate only, at the issue-creation commit, no search fallback, no memory) for every closed issue that locates by name and traces to at least one checkpoint, compared with the issue's state_reason.",
  "limits": [
+  "A classifier that always answered \"mistake\" would agree on 45 of 47 of these issues; Fence agrees on 40 of 47. This comparison does not show that the verdict adds information; it mostly shows that the set is dominated by completed issues.",
   "state_reason is a weak label. \"completed\" also covers feature work and refactors that were done as asked, where \"mistake\" (nobody chose the old behaviour) is not really the question being answered.",
   "The not_planned set that locates by name and traces to a checkpoint is very small, so the decision side of this comparison is a handful of issues and its rate means little.",
   "not_planned is not the same as a deliberate decision: issues are also closed that way as duplicates, as folded into another issue, or for process reasons.",
@@ -11,6 +12,10 @@
  "summary": {
   "issues": 52,
   "errors": 0,
+  "always_mistake_baseline": {
+   "compared": 47,
+   "agree": 45
+  },
   "verdict_by_state_reason": {
    "completed": {
     "no_record": 2,

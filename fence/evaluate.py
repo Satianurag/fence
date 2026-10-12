@@ -53,14 +53,24 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         rs = [r for r in rows if r["state_reason"] == reason and r["verdict"]]
         per[reason] = dict(issues=len(rs), expected=expected, agree=sum(r["agrees"] is True for r in rs),
                            disagree=sum(r["agrees"] is False for r in rs), abstained_no_record=sum(r["verdict"] == "no_record" for r in rs))
+    always = sum(1 for r in judged if r["expected"] == "mistake")
     return dict(
         issues=len(rows),
         errors=sum(1 for r in rows if r["error"]),
+        always_mistake_baseline=dict(compared=len(judged), agree=always),
         verdict_by_state_reason={k: dict(v) for k, v in sorted(table.items())},
         agreement=dict(compared=len(judged), agree=sum(r["agrees"] for r in judged),
                        rate=round(sum(r["agrees"] for r in judged) / len(judged), 3) if judged else None, by_state_reason=per),
         total_cost_usd=round(sum(r["cost_usd"] for r in rows), 4),
     )
+
+
+def always_mistake_limit(summary: dict[str, Any]) -> str:
+    """The first caveat, computed from the data: how a classifier that never looks at evidence would score."""
+    ag, base = summary["agreement"], summary["always_mistake_baseline"]
+    return (f"A classifier that always answered \"mistake\" would agree on {base['agree']} of {base['compared']} of these issues; "
+            f"Fence agrees on {ag['agree']} of {ag['compared']}. This comparison does not show that the verdict adds information; "
+            "it mostly shows that the set is dominated by completed issues.")
 
 
 def run_eval(issues: list[dict[str, Any]], numbers: list[int], investigate_one: Callable[[int], dict[str, Any]], out_dir: Path,
@@ -81,11 +91,12 @@ def run_eval(issues: list[dict[str, Any]], numbers: list[int], investigate_one: 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         runs = list(pool.map(one, numbers))
     rows = [row(by_number[n], r) for n, r in zip(numbers, runs)]
+    summary = summarize(rows)
     report = dict(
         what=what or "Fence verdict (investigate only, at the issue-creation commit, no search fallback, no memory) for every closed issue that "
                      "locates by name and traces to at least one checkpoint, compared with the issue's state_reason.",
-        limits=LIMITS if limits is None else limits,
-        summary=summarize(rows),
+        limits=(([always_mistake_limit(summary)] + LIMITS) if limits is None else limits),
+        summary=summary,
         issues=rows,
     )
     with open(out_dir / f"{name}.json", "w") as fh:
