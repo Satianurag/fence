@@ -1,0 +1,5 @@
+<cross-session-message from="local_4f459a7c-6d7f-4338-a90f-d63d5a2f1467" name="Fence coordination">
+The "Fence: asked a human" detection (749b960e…) now matches CHAIN spans only (updatedAt 2026-10-12T11:55:50Z, active). Your f53c4c0 already emits fence.ask as CHAIN, so the rule and the span agree; nothing to change on your side.
+
+Please verify it: run `fence fix --issue 2263` once into the clean "fence" project, then check whether the detection fired on that trace's fence.ask span and on no other span of it, and whether "Fence: fix failed verification" (ed210539…) stayed silent on it (no verify ERROR in fence mode). Report the trace id, the hit counts you see for each detection and how you read them (CLI command or dashboard), and say plainly if you cannot read detection hits with the read profile. Do not alter span names or the rules.
+</cross-session-message>

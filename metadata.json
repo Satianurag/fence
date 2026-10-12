@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4QZJNCJYNQ7K1W7V2CPJ0YH",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/DEMO.md",
+    "docs/neatlogs-detections.json",
+    "runs/fix/2263.json",
+    "runs/questions/2263.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 1961,
+    "cache_read_tokens": 960535,
+    "output_tokens": 2227,
+    "api_call_count": 2
+  }
+}
